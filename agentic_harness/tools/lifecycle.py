@@ -115,7 +115,7 @@ def acceptance_gate(request: dict) -> dict:
     """Verify original files and final content, not caller-provided ready booleans."""
     root = Path(request['worktree']).resolve()
     manifest = evidence.verify(Path(request['bundle']), root)
-    if manifest['schema_version'] != 3:
+    if manifest['schema_version'] not in (3, 4):
         raise ValueError('new-plan acceptance requires mode-aware retained source')
     selected = projects.resolve(request['project'], root)
     change = request['change']
@@ -188,7 +188,7 @@ def acceptance_gate(request: dict) -> dict:
     metadata = matches[0] / '.openspec.yaml'
     if metadata.is_file():
         required_design.add(metadata.relative_to(root).as_posix())
-    if design['schema_version'] != 3 or not required_design <= set(design['input_scope']):
+    if design['schema_version'] not in (3, 4) or not required_design <= set(design['input_scope']):
         raise ValueError('design acceptance omits final design or capability contracts')
     if (design['project'], design['change'], design['run_id']) != (manifest['project'], manifest['change'], manifest['run_id']):
         raise ValueError('design acceptance scope mismatch')

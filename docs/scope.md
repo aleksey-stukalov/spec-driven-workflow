@@ -7,8 +7,8 @@ name is needed.
 
 An OpenSpec home is the directory containing `openspec/`. It may describe the
 whole repository, one source directory, or several disjoint directories that
-share a change lifecycle. The local `openspec/workflow.yaml` records those paths
-and their checks.
+share a change lifecycle. The home's settings under `agentic_harness/config/`
+record those paths and their checks.
 
 ## Separate the boundaries
 
@@ -17,7 +17,7 @@ and their checks.
 | Repository root | Git history, worktrees, shared integration and host-local coordination |
 | OpenSpec home | Directory containing `openspec/`; `.` means the repository root |
 | `workflow.yaml`'s `code_roots` | Explicit source areas adopted by the process; several paths can share one OpenSpec home |
-| Workflow metadata | The selected project's `openspec/` tree, including its specification and queue |
+| Workflow metadata | The selected project's `openspec/` tree, including specifications and `dependency-map.yaml`, plus its exact harness settings file |
 | Shared installation files | Package runtime, namespaced skills and narrowly owned instruction blocks |
 | Task scope | Paths authorized for one bounded request |
 | Writer ownership | Exact files assigned exclusively to one writer |
@@ -52,15 +52,21 @@ coexist with another installed home inside a component. Use one root-level home
 covering the selected folders or separate non-overlapping homes. This is a
 package constraint; OpenSpec itself supports nested-root discovery.
 
-## Configure beside the specifications
+## Configure the selected home
 
 The two configuration files have distinct responsibilities:
 
 - `openspec/config.yaml` (or `config.yml`) is native OpenSpec configuration. Use
   it for the schema, project facts, artifact rules and operation guidance.
-- `openspec/workflow.yaml` supplies this workflow's executable settings: adopted
+- The selected file under `agentic_harness/config/` supplies executable settings: adopted
   source paths, required checks, environment preparation, dependency locks and
   evidence exclusions.
+
+Use `agentic_harness/config/workflow.yaml` for the root OpenSpec home. A home at
+`backend/openspec/` uses `agentic_harness/config/backend/workflow.yaml`. The home
+path determines the configuration path; the index does not expose a second
+location selector or require a name. Project inspection reports this path in
+`workflow`.
 
 For example, a backend using npm might have:
 
@@ -77,7 +83,7 @@ evidence_exclude: []
 ```
 
 Use the target's actual commands and lockfiles. Every configured path is relative
-to the Git worktree root, even if this file is in `backend/openspec/`. Checks and
+to the Git worktree root, even if this file is in `agentic_harness/config/backend/`. Checks and
 preparation run from the worktree root. Commands are executable-and-argument
 arrays; shell expressions are not expanded. Evidence exclusions identify private
 paths that must not enter retained review source, including dependency reads.
@@ -88,11 +94,19 @@ and refreshes the generated routing and integrity records. Missing or invalid
 settings block execution.
 
 `agentic_harness/projects.yaml` is an internal index of stable identifiers to
-OpenSpec homes. Older installations stored all settings there. Update migrates
-those settings into the companion files without renaming identifiers, which are
-still used by claims, run history and evidence. A conflicting pre-existing
-companion prevents migration. Do not keep two editable copies of the settings
-or rename the internal identifiers.
+OpenSpec homes. Schema 3 selects the harness configuration paths. Older
+installations stored settings inline or in `openspec/workflow.yaml`; update
+migrates them without renaming identifiers used by claims, history and evidence.
+The settings remain consumer-owned, even though their parent directory contains
+package code. A component may receive explicit write authority for its exact
+configuration file; this does not make the entire harness writable.
+
+The ordered dependency document stays in the selected `openspec/` as
+`dependency-map.yaml`. Update preserves the old `queue.yaml` bytes, permissions,
+list order and prerequisite semantics when renaming it. Conflicting old/new
+settings or maps block migration. Equivalent duplicates can be coalesced by an
+explicit installer plan; normal readers reject duplicate authority. Do not keep
+two editable copies or rename internal identifiers.
 
 ## Select by directory
 
@@ -137,7 +151,10 @@ final acceptance checks.
 ## Shared files and overlapping work
 
 Adoption can require shared routing in `AGENTS.md` or `CLAUDE.md` and namespaced
-skills under agent discovery directories. These are installation changes, not
+links under agent discovery directories. Canonical skills live under
+`agentic_harness/skills/`; only the individual `sdw-*` directories become links.
+Other skills and provider-specific role adapters retain their ownership.
+These are installation changes, not
 an automatic grant for ordinary product changes to rewrite all root settings.
 The install record distinguishes package-managed files from project-owned
 configuration and generated OpenSpec files.
@@ -159,8 +176,12 @@ do not broaden it implicitly.
 
 Worktrees isolate Git working copies. The dispatcher checks declared writer
 paths against task and project boundaries and coordinates exclusive ownership.
-Final review must inspect the full diff, including new, deleted and renamed
-paths. Neither a nested instruction file nor an OpenSpec root is an operating
+Final review must inspect the full diff, including new, deleted, renamed and
+type-changed paths. Retained review source represents approved discovery links
+as inert target-text files with explicit symlink metadata, alongside the
+canonical skill content. It does not expose traversable links. General aliases,
+assignments below a link and unsupported same-leaf file/link transitions fail
+explicitly. Neither a nested instruction file nor an OpenSpec root is an operating
 system sandbox or a guarantee that arbitrary commands cannot write elsewhere.
 
 The coordination database is shared by linked worktrees in one Git common

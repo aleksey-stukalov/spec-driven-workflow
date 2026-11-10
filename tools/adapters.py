@@ -6,7 +6,6 @@ host-wide settings. The installer owns merging the small entrypoint block.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 import re
 import subprocess
@@ -17,6 +16,9 @@ import tomlkit
 import yaml
 
 SOURCE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SOURCE / "agentic_harness/tools"))
+from projects import workflow_path
+from skill_links import discovery_links
 SKILLS = {
     "sdw-run": (
         "Run one authorized spec-driven development change in an adopted OpenSpec project, "
@@ -52,10 +54,10 @@ def entrypoint(registry: dict) -> str:
     rows = []
     for project in sorted(projects.values(), key=lambda item: item["root"]):
         roots = ", ".join(f"`{p}`" for p in project["code_roots"])
-        settings = (Path(project["root"]) / "openspec/workflow.yaml").as_posix()
+        settings = workflow_path(project["root"])
         rows.append(
             f"- OpenSpec root `{project['root']}`: code scope {roots}; "
-            f"settings [openspec/workflow.yaml]({quote(settings, safe='/')})."
+            f"settings [workflow.yaml]({quote(settings, safe='/')})."
         )
     return (
         "## Spec-driven workflow\n\n"
@@ -81,47 +83,9 @@ def entrypoint(registry: dict) -> str:
     )
 
 
-def _link(path: str, target: str) -> str:
-    return os.path.relpath(target, Path(path).parent).replace(os.sep, "/")
-
-
-def _skill(path: str, name: str, description: str, procedure: str) -> str:
-    reading = _link(path, "agentic_harness/policies/README.md")
-    execution = _link(path, "agentic_harness/procedures/execute.md")
-    phase = _link(path, "agentic_harness/procedures/" + procedure)
-    return (
-        f"---\nname: {name}\ndescription: {json.dumps(description)}\n---\n\n"
-        "Resolve the Git worktree root and read applicable repository instructions. "
-        f"Read the [policy map]({reading}), [execution procedure]({execution}) "
-        f"and [phase procedure]({phase}). Read the links explicitly.\n\n"
-        "Select the OpenSpec directory that owns the requested change and file scope. "
-        "Run from the worktree root:\n\n"
-        "```sh\nuv run --locked --project agentic_harness python "
-        "agentic_harness/tools/harness.py project --at SPEC_ROOT\n```\n\n"
-        "Replace SPEC_ROOT with the repository-relative directory containing the "
-        "intended `openspec/`; use `.` for the repository root. Read its native "
-        "`config.yaml` (or existing `config.yml`) and `workflow.yaml`. The latter "
-        "holds source scope, checks and environment settings; all its paths are "
-        "relative to the Git worktree root. Source and test folders can be elsewhere. "
-        "Use the returned `id` in machine requests and keep that binding for the run.\n\n"
-        "Without `--at`, the command selects the nearest adopted OpenSpec root from "
-        "the current directory, or the sole configured project when no local home "
-        "is found. A nearer unadopted home or ambiguous selection stops the command. "
-        "Resolve the requested scope before choosing another directory.\n\n"
-        "Use the pinned CLI in that selected project through:\n\n"
-        "```sh\nuv run --locked --project agentic_harness python "
-        "agentic_harness/tools/harness.py openspec --at SPEC_ROOT -- list --json\n```\n\n"
-        "Read OpenSpec's returned context and instructions. When following an unchanged "
-        "upstream skill, route each `openspec` command through this wrapper and preserve "
-        "its arguments. Do not edit or shadow the generated `openspec-*` skills. "
-        "Native OpenSpec commands alone do not run this workflow's acceptance gates. "
-        "A nested OpenSpec root and these instructions do not create a filesystem sandbox.\n\n"
-        "Use the selected plan's durable ledger and dispatcher for counted assignments. "
-        "Verify required native capabilities before launch; retain unavailable metadata "
-        "as unknown and honor existing model preferences and authorized resource limits. "
-        "Keep task authority, exact owned paths, independent reviews and original results "
-        "bound to the selected change. Do not start another queued change automatically.\n"
-    )
+def links(agents: list[str]) -> dict[str, str]:
+    """Explicit discovery link plan, separate from regular role outputs."""
+    return discovery_links(agents)
 
 
 def outputs(registry: dict, agents: list[str]) -> dict[str, str]:
@@ -130,12 +94,6 @@ def outputs(registry: dict, agents: list[str]) -> dict[str, str]:
     if not agents or set(agents) - {"codex", "claude"}:
         raise ValueError("supported agent integrations are codex and claude")
     result = {}
-    for agent in sorted(set(agents)):
-        base = ".agents" if agent == "codex" else ".claude"
-        for name, (description, procedure) in SKILLS.items():
-            path = f"{base}/skills/{name}/SKILL.md"
-            result[path] = _skill(path, name, description, procedure)
-
     # Validate in the source distribution's own import context. A caller may
     # already have another installed runtime in sys.modules or on sys.path.
     loader = (

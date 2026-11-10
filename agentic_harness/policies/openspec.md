@@ -8,7 +8,7 @@ selected project's context and instructions before using a generated skill.
 
 Choose the directory containing the intended `openspec/`. From the Git worktree
 root, use `harness.py project --at PATH`, where `PATH` is repository-relative and
-`.` selects the root. The source and test areas in `openspec/workflow.yaml` may
+`.` selects the root. The source and test areas in the selected harness settings may
 be outside this directory.
 
 Without a selector, the wrapper finds the nearest adopted OpenSpec home from
@@ -25,10 +25,18 @@ Preserve the existing `config.yaml` or `config.yml`; two config files are
 ambiguous. This version requires non-overlapping registered project roots.
 
 Use native configuration for schema selection, context, artifact rules and
-supported operation guidance. Use the adjacent `workflow.yaml` for this
-package's executable checks, source scope, preparation commands, lockfiles and
-evidence exclusions. The installer maintains the internal index; these settings
-have one project-owned source beside OpenSpec after migration.
+supported operation guidance. Use the selected `workflow` path returned by
+project inspection for executable checks, source scope, preparation commands,
+lockfiles and evidence exclusions. For the root home it is
+`agentic_harness/config/workflow.yaml`; component paths include their OpenSpec
+home under `agentic_harness/config/`. These files stay project-owned during
+package updates. The installer maintains the internal index and migrates legacy
+OpenSpec-local or inline settings explicitly.
+
+The ordered SDW dependency map remains beside the change artifacts as
+`openspec/dependency-map.yaml`. Its ordered `queue` list retains the existing
+selection and prerequisite rules. Native configuration and generated OpenSpec
+integrations do not acquire SDW-owned fields or instructions.
 
 OpenSpec-generated skills remain managed by OpenSpec. Keep package behavior in
 the `sdw-*` entry points and these policies. Editing generated skill bodies is

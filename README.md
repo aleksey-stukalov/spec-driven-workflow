@@ -75,7 +75,7 @@ example `--lockfile package-lock.json`.
 
 On a repeat installation for the same OpenSpec home, omitted settings are read
 from the saved configuration. A new installation needs real check commands,
-supplied by `--check` or an existing `openspec/workflow.yaml`.
+supplied by `--check` or the selected home's existing harness configuration.
 
 ### Apply to selected folders
 
@@ -106,19 +106,25 @@ non-nested homes with non-overlapping scopes. See [scope and routing](docs/scope
 
 ### Configure the project
 
-Keep settings beside the specifications:
+Keep OpenSpec data and harness configuration in their respective directories:
 
 | File | What belongs there |
 | --- | --- |
 | `openspec/config.yaml` or `config.yml` | OpenSpec's schema, project context, document rules and operation guidance. Existing content is preserved. |
-| `openspec/workflow.yaml` | This workflow's source paths, executable checks, environment preparation and evidence exclusions. |
-| `openspec/queue.yaml` | The ordered changes and their dependencies. |
+| `agentic_harness/config/workflow.yaml` | Source paths, executable checks, environment preparation and evidence exclusions for a root OpenSpec home. |
+| `openspec/dependency-map.yaml` | This workflow's ordered changes and dependencies, kept beside the changes they describe. |
 | `agentic_harness/` | The installed process and execution tools, shared across OpenSpec homes in the repository. |
+
+For a component home such as `backend/openspec/`, its harness settings live in
+`agentic_harness/config/backend/workflow.yaml` and its dependency map lives in
+`backend/openspec/dependency-map.yaml`. The path follows the OpenSpec home; no
+configuration name is required. `harness.py project --at backend` reports the
+selected settings path in its `workflow` field.
 
 For the selected-folder example, the installer creates settings like these:
 
 ```yaml
-# openspec/workflow.yaml
+# agentic_harness/config/workflow.yaml
 schema_version: 1
 code_roots: [backend, tests/backend]
 checks:
@@ -130,13 +136,14 @@ evidence_exclude: []
 ```
 
 All paths in this file are relative to the Git worktree root, including when the
-file lives in `backend/openspec/`. Checks and preparation commands run from that
+file lives in `agentic_harness/config/backend/`. Checks and preparation commands run from that
 same root. Declare real dependency locks and any required preparation commands;
 the empty lists above do not imply that the application needs none.
 
-`workflow.yaml` belongs to this package's integration, not to OpenSpec itself.
-It makes checks executable while native OpenSpec configuration supplies project
-context and rules. Edit the appropriate local file, then run `update --dry-run`
+The harness configuration and dependency map are SDW additions. Native OpenSpec
+configuration supplies project context and rules. Configuration under
+`agentic_harness/config/` belongs to the consumer project and is preserved during
+package updates. Edit the appropriate file, then run `update --dry-run`
 and apply the update to refresh routing and integrity records. Do not edit the
 package's policy files to configure an application.
 
@@ -172,17 +179,35 @@ under the old directory, migration stops for reconciliation. Resolve those
 references in the project's workflow settings and retry the dry-run. Preserve
 old-path evidence exclusions that protect files remaining in the legacy directory.
 
-For older registration formats, the update moves inline settings from `projects.yaml`
-to each home's `openspec/workflow.yaml` and retains the existing identifiers.
-The dry-run shows the migration. A pre-existing companion file with different
-settings is a conflict to resolve before applying the update. Active runs retain
-their original worktree, runtime and evidence; they are not migrated in place.
+The update also moves settings from legacy `openspec/workflow.yaml` files or
+inline registrations to `agentic_harness/config/`, renames each `queue.yaml` to
+`dependency-map.yaml`, and retains existing internal identifiers. It preserves
+file contents and permissions when moving existing settings and maps. The map
+keeps its ordered `queue` list and dependency rules; only the filename changes.
+Equivalent old/new files can be explicitly coalesced by the installer; conflicting
+files require reconciliation. Normal runtime selection rejects duplicate authority.
+
+The three `sdw-*` skill bodies live once under `agentic_harness/skills/`. Selected
+agent discovery directories contain relative directory symlinks to them. Updates
+replace verified old copies only when each old directory contains its owned
+`SKILL.md` and nothing else. Edited copies, extra files or directories, and
+unexpected links are reported as conflicts. A filesystem unable to create the
+links fails installation; the tool does not silently substitute duplicate copies.
+If an installation fails, it restores uncontested prior state and reports any
+concurrent edits that require recovery. Inspect `--dry-run` before applying.
+Active runs retain their original worktree, runtime and evidence; they are not
+migrated in place.
 
 ## Use the installed workflow
 
-The installer adds `sdw-run`, `sdw-harden` and `sdw-review` skills for selected
-agents, role definitions under the `sdw-` namespace, a scoped instruction block,
+The installer links `sdw-run`, `sdw-harden` and `sdw-review` skills for selected
+agents, adds role definitions under the `sdw-` namespace, a scoped instruction block,
 and the `agentic_harness/` runtime. It does not replace global model settings.
+
+For example, `.agents/skills/sdw-run` and `.claude/skills/sdw-run` point to
+`../../agentic_harness/skills/sdw-run`. Each link names one skill, preserving
+other agent skills and OpenSpec-generated integrations. Relative links stay
+within the current checkout when the repository is cloned or used in a worktree.
 
 From the target repository's Git worktree root, inspect the selected OpenSpec
 home and list its changes:

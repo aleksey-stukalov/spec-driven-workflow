@@ -18,14 +18,20 @@ import re
 import shutil
 import sqlite3
 import stat
+from contextlib import contextmanager
 import subprocess
 import sys
 import tempfile
+import uuid
 from dataclasses import dataclass, field
 
 import yaml
 
 SOURCE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SOURCE / "agentic_harness/tools"))
+from projects import workflow_path
+from dependency_maps import parse as parse_dependency_map
+from skill_links import discovery_links, expected_target, validate_link
 VERSION = "0.1.0"
 OPENSPEC_VERSION = "1.14.3"
 HARNESS = "agentic_harness"
@@ -34,7 +40,7 @@ MANIFEST = f"{HARNESS}/install.json"
 REGISTRY = f"{HARNESS}/projects.yaml"
 START = "<!-- spec-driven-workflow:start -->"
 END = "<!-- spec-driven-workflow:end -->"
-PAYLOAD_DIRECTORIES = ("tools", "policies", "procedures", "roles", "templates")
+PAYLOAD_DIRECTORIES = ("tools", "policies", "procedures", "roles", "templates", "skills")
 PAYLOAD_FILES = ("README.md", ".gitignore", "plans.yaml", "handbook.yaml", "index.html",
                  "package.json", "package-lock.json", "pyproject.toml", "uv.lock")
 AGENTS = {"codex", "claude"}
@@ -69,9 +75,12 @@ def encoded(value) -> bytes:
     return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
 
 
-def read_yaml(path: Path):
+def read_yaml(path: Path, *, aliases=True):
     try:
-        return yaml.load(path.read_text(), Loader=UniqueLoader)
+        text = path.read_text()
+        if not aliases and any(isinstance(token, (yaml.tokens.AliasToken, yaml.tokens.AnchorToken)) for token in yaml.scan(text)):
+            raise InstallError(f"YAML aliases are unsupported: {path}")
+        return yaml.load(text, Loader=UniqueLoader)
     except (yaml.YAMLError, UnicodeError) as exc:
         raise InstallError(f"invalid YAML: {path}") from exc
 
@@ -151,7 +160,7 @@ def load_manifest(target: Path, *, harness=None) -> dict | None:
     except (ValueError, UnicodeError) as exc:
         raise InstallError("invalid workflow installation manifest") from exc
     required = {"schema_version", "workflow_version", "openspec_version", "payload_sha256", "registry_sha256", "managed", "upstream", "blocks", "projects"}
-    if not isinstance(value, dict) or not required <= set(value) or value["schema_version"] != 1:
+    if not isinstance(value, dict) or not required <= set(value) or type(value["schema_version"]) is not int or value["schema_version"] not in {1, 2}:
         raise InstallError("unsupported workflow installation manifest")
     if not isinstance(value["projects"], dict) or not value["projects"]:
         raise InstallError("installation manifest has no projects")
@@ -175,6 +184,20 @@ def load_manifest(target: Path, *, harness=None) -> dict | None:
                 raise InstallError(f"manifest claims an unsupported instruction file: {name}")
             if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
                 raise InstallError("invalid installed file digest")
+    if value["schema_version"] == 2:
+        if "links" not in value or not isinstance(value["links"], dict):
+            raise InstallError("manifest schema 2 requires typed links")
+        selected = {agent for record in value["projects"].values() for agent in record["agents"]}
+        allowed = discovery_links(selected)
+        if set(value["links"]) != set(allowed):
+            raise InstallError("manifest links do not match selected provider discovery")
+        for name, record in value["links"].items():
+            if (not isinstance(record, dict) or name not in allowed or record != {"kind": "directory_symlink", "target": allowed[name]}
+                    or set(record) != {"kind", "target"}
+                    or any(overlap(name, path) for path in value["managed"])):
+                raise InstallError(f"invalid installation link ownership: {name}")
+    elif "links" in value:
+        raise InstallError("legacy manifest cannot claim links")
     if not isinstance(value["registry_sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", value["registry_sha256"]):
         raise InstallError("invalid installed registry binding")
     return value
@@ -231,6 +254,12 @@ def verify_owned(target: Path, manifest: dict | None) -> None:
             path = target_path(target, name)
             if not path.is_file() or digest(path.read_bytes()) != expected:
                 raise InstallError(f"locally changed or missing {group} file: {name}; resolve the change before updating")
+    for name, record in manifest.get("links", {}).items():
+        try:
+            if validate_link(target, name) != record:
+                raise ValueError("different link record")
+        except ValueError as exc:
+            raise InstallError(f"locally changed or missing managed link: {name}") from exc
     for name, expected in manifest["blocks"].items():
         path = target_path(target, name)
         current = block(path.read_text()) if path.is_file() else None
@@ -238,8 +267,8 @@ def verify_owned(target: Path, manifest: dict | None) -> None:
             raise InstallError(f"locally changed or missing workflow block: {name}")
 
 
-def workflow_name(root: str) -> str:
-    return join(relative(root, root=True), "openspec/workflow.yaml")
+def workflow_name(root: str, schema_version=3) -> str:
+    return workflow_path(relative(root, root=True), schema_version=schema_version)
 
 
 def workflow_settings(project: dict) -> dict:
@@ -255,10 +284,10 @@ def workflow_settings(project: dict) -> dict:
     }
 
 
-def read_workflow(target: Path, root: str, *, readset=None, required=False) -> dict | None:
-    name = workflow_name(root)
+def read_workflow(target: Path, root: str, *, readset=None, required=False, schema_version=3) -> dict | None:
+    name = workflow_name(root, schema_version)
     if readset is not None and name not in readset:
-        readset[name] = observe(target, name)
+        remember(target, name, readset)
     path = target_path(target, name)
     if not path.exists():
         if required:
@@ -266,27 +295,56 @@ def read_workflow(target: Path, root: str, *, readset=None, required=False) -> d
         return None
     if not path.is_file():
         raise InstallError(f"workflow configuration is not a regular file: {name}")
-    value = read_yaml(path)
-    required_fields = {"schema_version", "code_roots", "checks"}
-    if (not isinstance(value, dict) or not required_fields <= set(value)
-            or set(value) - required_fields - {"environment", "evidence_exclude"}
-            or type(value["schema_version"]) is not int or value["schema_version"] != 1):
-        raise InstallError(f"unsupported workflow configuration: {name}")
-    return workflow_settings(value)
+    try:
+        value = read_yaml(path, aliases=False)
+        required_fields = {"schema_version", "code_roots", "checks"}
+        if (not isinstance(value, dict) or not required_fields <= set(value)
+                or set(value) - required_fields - {"environment", "evidence_exclude"}
+                or type(value["schema_version"]) is not int or value["schema_version"] != 1):
+            raise InstallError(f"unsupported workflow configuration: {name}")
+        normalized = workflow_settings(value)
+        validate_settings(normalized, name)
+        return normalized
+    except InstallError as exc:
+        raise InstallError(f"invalid workflow configuration {name}: {exc}") from exc
 
 
-def load_registry(target: Path, *, readset=None, harness=None) -> dict:
+def validate_settings(value: dict, name: str) -> None:
+    roots = value["code_roots"]
+    checks = value["checks"]
+    environment = value["environment"]
+    if not isinstance(roots, list) or not roots or any(not isinstance(item, str) for item in roots) or len(set(roots)) != len(roots):
+        raise InstallError(f"invalid source scope: {name}")
+    for item in roots:
+        relative(item, root=True)
+    if not isinstance(checks, list) or not checks:
+        raise InstallError(f"project requires concrete validation commands: {name}")
+    for command in checks:
+        _argv(command)
+    for field in ("lockfiles", "prepare"):
+        if not isinstance(environment[field], list):
+            raise InstallError(f"invalid environment {field}: {name}")
+    for command in environment["prepare"]:
+        _argv(command)
+    for items in (environment["lockfiles"], value["evidence_exclude"]):
+        if not isinstance(items, list) or any(not isinstance(item, str) for item in items) or len(set(items)) != len(items):
+            raise InstallError(f"invalid configuration paths: {name}")
+        for item in items:
+            relative(item, root=True)
+
+
+def load_registry(target: Path, *, readset=None, harness=None, migration=False) -> dict:
     """Expand either index version into the runtime's stable project structure."""
     harness = installation_layout(target) if harness is None else harness
     name = f"{harness}/projects.yaml"
     if readset is not None and name not in readset:
-        readset[name] = observe(target, name)
+        remember(target, name, readset)
     path = target_path(target, name)
     if not path.exists():
         return {"schema_version": 1, "projects": {}}
     value = read_yaml(path)
     if (not isinstance(value, dict) or set(value) != {"schema_version", "projects"}
-            or type(value["schema_version"]) is not int or value["schema_version"] not in {1, 2}
+            or type(value["schema_version"]) is not int or value["schema_version"] not in {1, 2, 3}
             or not isinstance(value["projects"], dict)):
         raise InstallError("unsupported projects.yaml; existing configuration was preserved")
     projects = {}
@@ -294,11 +352,16 @@ def load_registry(target: Path, *, readset=None, harness=None) -> dict:
         if not isinstance(project, dict) or "root" not in project:
             raise InstallError(f"incomplete project registration: {name}")
         root = relative(project["root"], root=True)
-        local = read_workflow(target, root, readset=readset, required=value["schema_version"] == 2)
-        if value["schema_version"] == 2:
+        local = read_workflow(target, root, readset=readset, required=value["schema_version"] in {2, 3}, schema_version=value["schema_version"])
+        alternate = read_workflow(target, root, readset=readset, schema_version=2 if value["schema_version"] == 3 else 3)
+        if alternate is not None and not migration:
+            raise InstallError("ambiguous workflow configuration; reconcile legacy settings")
+        if value["schema_version"] != 3 and alternate is not None and local is not None and alternate != local:
+            raise InstallError("workflow configuration conflicts with migration destination")
+        if value["schema_version"] in {2, 3}:
             if set(project) != {"root"}:
-                raise InstallError("version 2 projects.yaml contains only OpenSpec roots; edit openspec/workflow.yaml")
-            projects[name] = {"root": root, "queue": join(root, "openspec/queue.yaml"), **local}
+                raise InstallError(f"version {value['schema_version']} projects.yaml contains only OpenSpec roots; edit {workflow_name(root, value['schema_version'])}")
+            projects[name] = {"root": root, "queue": join(root, "openspec/dependency-map.yaml" if value["schema_version"] == 3 else "openspec/queue.yaml"), **local}
         else:
             required_fields = {"root", "queue", "code_roots", "checks"}
             if not required_fields <= set(project) or set(project) - required_fields - {"environment", "evidence_exclude"}:
@@ -307,6 +370,18 @@ def load_registry(target: Path, *, readset=None, harness=None) -> dict:
             if local is not None and local != settings:
                 raise InstallError(f"workflow configuration conflicts with legacy projects.yaml: {workflow_name(root)}")
             projects[name] = {"root": root, "queue": project["queue"], **settings}
+        authority = projects[name]["queue"]
+        alternate_map = join(root, "openspec/queue.yaml" if value["schema_version"] == 3 else "openspec/dependency-map.yaml")
+        for candidate in (authority, alternate_map):
+            if readset is not None:
+                remember(target, candidate, readset)
+        if not target_path(target, authority).is_file():
+            raise InstallError(f"missing indexed dependency map: {authority}")
+        dependency_document(target_path(target, authority))
+        if target_path(target, alternate_map).exists():
+            dependency_document(target_path(target, alternate_map))
+            if not migration:
+                raise InstallError(f"ambiguous dependency map: {alternate_map}")
     return {"schema_version": 1, "projects": projects}
 
 
@@ -338,7 +413,7 @@ def validate_registry(target: Path, registry: dict) -> None:
         root = relative(project["root"], root=True)
         if not target_path(target, root, root=True).is_dir():
             raise InstallError(f"OpenSpec project directory does not exist: {root}")
-        if project["queue"] != join(root, "openspec/queue.yaml"):
+        if project["queue"] not in {join(root, "openspec/queue.yaml"), join(root, "openspec/dependency-map.yaml")}:
             raise InstallError(f"queue must belong to its OpenSpec project: {name}")
         target_path(target, project["queue"])
         if root in roots:
@@ -358,7 +433,7 @@ def validate_registry(target: Path, registry: dict) -> None:
         # Check both directions without widening the persisted code_roots.
         metadata = join(root, "openspec")
         target_path(target, metadata)
-        for area in dict.fromkeys([*areas, metadata]):
+        for area in dict.fromkeys([*areas, metadata, workflow_name(root)]):
             if any(owner != name and overlap(area, prior) for owner, prior in scopes):
                 raise InstallError(f"project area overlaps another domain: {name} ({area})")
             scopes.append((name, area))
@@ -437,6 +512,8 @@ def package_payload(source: Path) -> dict[str, bytes]:
     base = source / HARNESS
     for directory in PAYLOAD_DIRECTORIES:
         path = base / directory
+        if path.is_symlink():
+            raise InstallError(f"source payload contains a symlink: {path}")
         if not path.is_dir():
             raise InstallError(f"source distribution is incomplete: {path}")
         for item in sorted(path.rglob("*")):
@@ -612,15 +689,26 @@ class Plan:
     before_modes: dict[str, int] = field(default_factory=dict)
     write_modes: dict[str, int] = field(default_factory=dict)
     directory_modes: dict[str, int] = field(default_factory=dict)
+    links: dict[str, str] = field(default_factory=dict)
+    link_removals: list[str] = field(default_factory=list)
+    conversions: list[str] = field(default_factory=list)
+    moves: list[dict] = field(default_factory=list)
+    coalesced: list[dict] = field(default_factory=list)
+    directory_removals: list[str] = field(default_factory=list)
 
     def summary(self, *, dry_run=False) -> dict:
         summary = {"status": "planned" if dry_run else "installed", "workflow_version": VERSION,
                 "openspec_version": OPENSPEC_VERSION, "changed": sorted(self.writes),
                 "removed": sorted(self.removals), "create_directories": self.directories,
                 "install_toolchain": self.dependencies, "projects": sorted(self.manifest["projects"]),
-                "payload_sha256": self.manifest["payload_sha256"]}
+                "payload_sha256": self.manifest["payload_sha256"],
+                "links": self.links, "removed_links": self.link_removals, "conversions": self.conversions,
+                "moves": self.moves, "coalesced": self.coalesced,
+                "removed_directories": self.directory_removals}
         if self.legacy_root:
             summary["migration"] = {"from": self.legacy_root, "to": HARNESS}
+            summary["retained"] = self.retained
+        if self.retained:
             summary["retained"] = self.retained
         if dry_run:
             summary["diffs"] = {
@@ -633,20 +721,71 @@ class Plan:
         return summary
 
 
+def state_at(descriptor: int, leaf: str, name: str):
+    """Read one lexical object via a pinned parent without following its leaf."""
+    try:
+        info = os.stat(leaf, dir_fd=descriptor, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    if stat.S_ISLNK(info.st_mode):
+        try:
+            expected_target(name)
+        except ValueError as exc:
+            raise InstallError(f"installation path is a symlink: {name}") from exc
+        return {"kind": "directory_symlink", "target": os.readlink(leaf, dir_fd=descriptor)}
+    if not stat.S_ISREG(info.st_mode) and not stat.S_ISDIR(info.st_mode):
+        raise InstallError(f"unsupported target file type: {name}")
+    flags = os.O_RDONLY | os.O_NOFOLLOW
+    if stat.S_ISDIR(info.st_mode):
+        flags |= os.O_DIRECTORY
+    fd = os.open(leaf, flags, dir_fd=descriptor)
+    try:
+        opened = os.fstat(fd)
+        if (opened.st_dev, opened.st_ino, opened.st_mode) != (info.st_dev, info.st_ino, info.st_mode):
+            raise InstallError(f"target changed while observing installation: {name}")
+        if stat.S_ISDIR(info.st_mode):
+            return {"directory": sorted(os.listdir(fd)), "mode": stat.S_IMODE(info.st_mode),
+                    "identity": [info.st_dev, info.st_ino]}
+        sha = hashlib.sha256()
+        while data := os.read(fd, 1024 * 1024):
+            sha.update(data)
+        after = os.fstat(fd)
+        current = os.stat(leaf, dir_fd=descriptor, follow_symlinks=False)
+        if (after.st_mtime_ns, after.st_size, after.st_mode, current.st_dev, current.st_ino) != (info.st_mtime_ns, info.st_size, info.st_mode, info.st_dev, info.st_ino):
+            raise InstallError(f"target changed while observing installation: {name}")
+        return {"file": sha.hexdigest(), "mode": stat.S_IMODE(info.st_mode)}
+    finally:
+        os.close(fd)
+
+
 def observe(target: Path, name: str):
-    """Fingerprint files and directory entries used to prepare an installation."""
+    """Fingerprint absent/files/directories and finite link leaves without aliases."""
+    relative(name, root=name == ".")
     path = target / name
     if name == "CLAUDE.md" and path.is_symlink() and path.resolve() == (target / "AGENTS.md").resolve():
         return {"symlink": os.readlink(path)}
-    path = target_path(target, name, root=name == ".")
-    if path.is_file():
-        return {"file": digest(path.read_bytes()), "mode": stat.S_IMODE(path.stat().st_mode)}
-    if path.is_dir():
-        return {"directory": sorted(p.name for p in path.iterdir()),
-                "mode": stat.S_IMODE(path.stat().st_mode)}
-    if path.exists():
-        raise InstallError(f"unsupported target file type: {name}")
-    return None
+    try:
+        if name == ".":
+            descriptor = os.open(target, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                return state_at(descriptor, ".", name)
+            finally:
+                os.close(descriptor)
+        with parent_handle(target, name) as descriptor:
+            return state_at(descriptor, Path(name).name, name)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise InstallError(f"unsafe or changed installation path (symlink or non-directory): {name}") from exc
+
+
+def remember(target: Path, name: str, readset: dict) -> None:
+    for parent in reversed(Path(name).parents):
+        relative_name = parent.as_posix()
+        if relative_name not in readset:
+            readset[relative_name] = observe(target, relative_name)
+    if name not in readset:
+        readset[name] = observe(target, name)
 
 
 def check_readset(target: Path, readset: dict) -> None:
@@ -661,7 +800,7 @@ def retained_legacy_paths(target: Path, owned: set[str], readset: dict) -> list[
 
     def visit(name):
         if name not in readset:
-            readset[name] = observe(target, name)
+            remember(target, name, readset)
         for path in sorted(target_path(target, name).iterdir()):
             relative_name = path.relative_to(target).as_posix()
             if relative_name in owned:
@@ -694,6 +833,26 @@ def validate_migration_bindings(registry: dict, moved: set[str]) -> None:
             raise InstallError(f"legacy package command in {settings}; update explicit {LEGACY_HARNESS} arguments before migration")
 
 
+def dependency_document(path: Path) -> list:
+    try:
+        return parse_dependency_map(path.read_text(), label=str(path))
+    except (ValueError, UnicodeError) as exc:
+        raise InstallError(f"invalid dependency map: {path}: {exc}") from exc
+
+
+def validate_removed_bindings(registry: dict, removed: set[str]) -> None:
+    for project in registry["projects"].values():
+        settings = workflow_name(project["root"])
+        paths = project["code_roots"] + project.get("environment", {}).get("lockfiles", [])
+        for path in paths:
+            if path not in {".", project["root"]} and any(overlap(path, name) for name in removed):
+                raise InstallError(f"removed input path in {settings}: {path}; reconcile local bindings before migration")
+        for command in project["checks"] + project.get("environment", {}).get("prepare", []):
+            for argument in command:
+                if any(re.search(r"(?<![A-Za-z0-9_.-])" + re.escape(name) + r"(?=$|[^A-Za-z0-9_.-])", argument) for name in removed):
+                    raise InstallError(f"removed input command in {settings}; reconcile local bindings before migration")
+
+
 def build_plan(target: Path, source: Path, registry: dict, registrations: dict, old: dict | None, readset=None, *, old_harness=HARNESS) -> Plan:
     readset = dict(readset or {})
     validate_registry(target, registry)
@@ -703,17 +862,20 @@ def build_plan(target: Path, source: Path, registry: dict, registrations: dict, 
     if old:
         watched.update(old["managed"])
         watched.update(old["upstream"])
+        watched.update(old.get("links", {}))
     for project in registry["projects"].values():
         watched.add(project["root"])
         watched.update(project["code_roots"])
         watched.update(project.get("environment", {}).get("lockfiles", []))
-        watched.update(join(project["root"], "openspec/" + name) for name in ("config.yaml", "config.yml", "workflow.yaml", "queue.yaml", "changes", "schemas"))
+        watched.update(join(project["root"], "openspec/" + name) for name in ("config.yaml", "config.yml", "workflow.yaml", "queue.yaml", "dependency-map.yaml", "changes", "schemas"))
         schemas = target_path(target, join(project["root"], "openspec/schemas"))
         if schemas.exists():
             watched.update(path.relative_to(target).as_posix() for path in schemas.rglob("*"))
     for name in watched:
         if name not in readset:
-            readset[name] = observe(target, name)
+            remember(target, name, readset)
+    for name in discovery_links(AGENTS):
+        remember(target, name, readset)
     # Capture before verifying ownership or invoking generators. A concurrent
     # edit must not become a newly trusted baseline after ownership was checked.
     verify_owned(target, old)
@@ -729,6 +891,7 @@ def build_plan(target: Path, source: Path, registry: dict, registrations: dict, 
     payload = package_payload(source)
     modules = adapter_module(source)
     selected_agents = sorted({agent for item in registrations.values() for agent in item["agents"]})
+    link_targets = discovery_links(selected_agents)
     generated = modules.outputs(registry, selected_agents)
     managed = dict(payload)
     for name, text in generated.items():
@@ -743,7 +906,7 @@ def build_plan(target: Path, source: Path, registry: dict, registrations: dict, 
     # New destinations also enter the read set before any conflict decision.
     for name in intended:
         if name not in readset:
-            readset[name] = observe(target, name)
+            remember(target, name, readset)
     for name, contents in {**managed, **upstream}.items():
         path = target_path(target, name)
         owned = old is not None and (name in old["managed"] or name in old["upstream"])
@@ -752,27 +915,65 @@ def build_plan(target: Path, source: Path, registry: dict, registrations: dict, 
         if path.is_file() and not owned and path.read_bytes() != contents:
             raise InstallError(f"existing file conflicts with installation: {name}; preserve its customizations outside managed files first")
     current_registry = target_path(target, REGISTRY)
-    index = {"schema_version": 2, "projects": {name: {"root": project["root"]}
+    index = {"schema_version": 3, "projects": {name: {"root": project["root"]}
              for name, project in registry["projects"].items()}}
     if not current_registry.exists() or read_yaml(current_registry) != index:
         intended[REGISTRY] = yaml.safe_dump(index, sort_keys=False).encode()
+    migration_removals = []
+    moves = []
+    coalesced = []
+    migration_modes = {}
+    indexed = read_yaml(target_path(target, f"{old_harness}/projects.yaml")) if target_path(target, f"{old_harness}/projects.yaml").is_file() else None
+    indexed_version = indexed["schema_version"] if indexed else None
     for project in registry["projects"].values():
-        local = read_workflow(target, project["root"], readset=readset)
+        root = project["root"]
         settings = workflow_settings(project)
+        destination = workflow_name(root)
+        legacy = workflow_name(root, 2)
+        local = read_workflow(target, root, readset=readset)
+        prior = read_workflow(target, root, readset=readset, schema_version=2)
+        if local is not None and local != settings or prior is not None and prior != settings:
+            raise InstallError(f"existing workflow configuration differs: {destination}; edit it explicitly and use update")
         if local is None:
-            intended[workflow_name(project["root"])] = yaml.safe_dump(
-                {"schema_version": 1, **settings}, sort_keys=False).encode()
-        elif local != settings:
-            raise InstallError(f"existing workflow configuration differs: {workflow_name(project['root'])}; edit it explicitly and use update")
-        queue = target_path(target, project["queue"])
-        if not queue.exists():
-            changes = target_path(target, join(project["root"], "openspec/changes"))
-            if changes.exists() and any(p.is_dir() and p.name != "archive" for p in changes.iterdir()):
-                raise InstallError(f"existing changes require an explicit dependency queue: {project['queue']}")
-            intended[project["queue"]] = b"queue: []\n"
+            if prior is not None:
+                intended[destination] = target_path(target, legacy).read_bytes()
+                migration_modes[destination] = readset[legacy]["mode"]
+            else:
+                intended[destination] = yaml.safe_dump({"schema_version": 1, **settings}, sort_keys=False).encode()
+        if prior is not None:
+            migration_removals.append(legacy)
+            (coalesced if local is not None else moves).append({"from": legacy, "to": destination})
+        old_map = join(root, "openspec/queue.yaml")
+        new_map = join(root, "openspec/dependency-map.yaml")
+        maps = {}
+        for name in (old_map, new_map):
+            if name not in readset:
+                remember(target, name, readset)
+            path = target_path(target, name)
+            if path.exists():
+                maps[name] = dependency_document(path)
+        if indexed and root in {p["root"] for p in indexed["projects"].values()}:
+            authority = new_map if indexed_version == 3 else old_map
+            if authority not in maps:
+                raise InstallError(f"missing indexed dependency map: {authority}")
+        if old_map in maps and new_map in maps and maps[old_map] != maps[new_map]:
+            raise InstallError(f"dependency map conflicts with legacy queue: {new_map}")
+        if new_map not in maps:
+            if old_map in maps:
+                intended[new_map] = target_path(target, old_map).read_bytes()
+                migration_modes[new_map] = readset[old_map]["mode"]
+            else:
+                changes = target_path(target, join(root, "openspec/changes"))
+                if changes.exists() and any(p.is_dir() and p.name != "archive" for p in changes.iterdir()):
+                    raise InstallError(f"existing changes require an explicit dependency queue: {new_map}")
+                intended[new_map] = b"queue: []\n"
+        if old_map in maps:
+            migration_removals.append(old_map)
+            (coalesced if new_map in maps else moves).append({"from": old_map, "to": new_map})
+    validate_removed_bindings(registry, set(migration_removals) | {name for name in (old or {}).get("managed", {}) if name not in managed and "/skills/sdw-" in name})
     bodies = {}
     for name in ("AGENTS.md", "CLAUDE.md"):
-        if name == "CLAUDE.md" and "claude" not in selected_agents:
+        if name == "CLAUDE.md" and "claude" not in selected_agents and name not in (old or {}).get("blocks", {}):
             continue
         path = target / name
         if name == "CLAUDE.md" and path.is_symlink() and path.resolve() == (target / "AGENTS.md").resolve():
@@ -790,15 +991,42 @@ def build_plan(target: Path, source: Path, registry: dict, registrations: dict, 
     if any(not upstream_path(name, registrations) for name in upstream):
         raise InstallError("upstream generator emitted a file outside its namespace")
     manifest = {
-        "schema_version": 1, "workflow_version": VERSION, "openspec_version": OPENSPEC_VERSION,
+        "schema_version": 2, "workflow_version": VERSION, "openspec_version": OPENSPEC_VERSION,
         "payload_sha256": payload_hash,
         "registry_sha256": digest(encoded(registry)),
         "managed": {name: digest(value) for name, value in sorted(managed.items())},
         "upstream": {name: digest(value) for name, value in sorted(upstream.items())},
         "blocks": bodies, "projects": registrations,
+        "links": {name: {"kind": "directory_symlink", "target": target} for name, target in link_targets.items()},
     }
     intended[MANIFEST] = encoded(manifest)
     removals = sorted((set(old["managed"]) | set(old["upstream"])) - set(managed) - set(upstream)) if old else []
+    removals = sorted(set(removals) | set(migration_removals))
+    conversions = []
+    directory_removals = []
+    for name, literal in link_targets.items():
+        if name not in readset:
+            remember(target, name, readset)
+        state = readset[name]
+        owned_link = (old or {}).get("links", {}).get(name)
+        if state is None:
+            continue
+        if owned_link is not None:
+            continue
+        child = name + "/SKILL.md"
+        if (not isinstance(state, dict) or state.get("directory") != ["SKILL.md"]
+                or child not in (old or {}).get("managed", {}) or child not in removals):
+            raise InstallError(f"unowned or nonempty discovery directory conflicts with link conversion: {name}")
+        conversions.append(name)
+    for name in sorted(set(discovery_links(AGENTS)) - set(link_targets)):
+        child = name + "/SKILL.md"
+        if child in removals and child in (old or {}).get("managed", {}):
+            state = readset[name]
+            if not isinstance(state, dict) or state.get("directory") != ["SKILL.md"]:
+                raise InstallError(f"nonempty legacy discovery directory conflicts with removal: {name}")
+            directory_removals.append(name)
+    link_changes = {name: literal for name, literal in link_targets.items() if not (old or {}).get("links", {}).get(name)}
+    link_removals = sorted(set((old or {}).get("links", {})) - set(link_targets))
     if migrating:
         removals = sorted(set(removals) | legacy_metadata)
         legacy_ignore = f"{LEGACY_HARNESS}/.gitignore"
@@ -813,7 +1041,7 @@ def build_plan(target: Path, source: Path, registry: dict, registrations: dict, 
         path = target_path(target, name)
         prior = path.read_bytes() if path.is_file() else None
         if name not in readset:
-            readset[name] = observe(target, name)
+            remember(target, name, readset)
         if prior != value:
             writes[name] = value
             before[name] = prior
@@ -821,7 +1049,7 @@ def build_plan(target: Path, source: Path, registry: dict, registrations: dict, 
         before[name] = target_path(target, name).read_bytes()
     before_modes = {name: stat.S_IMODE(target_path(target, name).stat().st_mode)
                     for name, content in before.items() if content is not None}
-    write_modes = {}
+    write_modes = dict(migration_modes)
     directory_modes = {}
     if migrating:
         owned_directories = {LEGACY_HARNESS}
@@ -854,7 +1082,7 @@ def build_plan(target: Path, source: Path, registry: dict, registrations: dict, 
     toolchain = {name: payload[f"{HARNESS}/{name}"] for name in ("package.json", "package-lock.json")}
     return Plan(target, writes, removals, directories, dependency_change, manifest, before, readset, toolchain,
                 LEGACY_HARNESS if migrating else None, sorted(retained), before_modes, write_modes,
-                directory_modes)
+                directory_modes, link_changes, link_removals, conversions, moves, coalesced, directory_removals)
 
 
 def prepare_dependencies(source: Path, temporary: Path) -> Path:
@@ -878,23 +1106,119 @@ def atomic_write(path: Path, content: bytes, *, mode: int | None = None) -> None
     _atomic_write(path, content, mode)
 
 
+_WRITE_HANDLES = {}
+_WRITE_GUARDS = {}
+
+
 def _atomic_write(path: Path, content: bytes, mode: int) -> None:
-    """Set permissions before publishing replacement or restored bytes."""
-    descriptor, temporary = tempfile.mkstemp(prefix=".sdw-write-", dir=path.parent)
-    temporary = Path(temporary)
+    """Publish through a pinned no-follow parent, including during rollback."""
+    owned = path not in _WRITE_HANDLES
+    descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW) if owned else _WRITE_HANDLES[path]
+    temporary = ".sdw-write-" + uuid.uuid4().hex
     try:
-        with os.fdopen(descriptor, "wb") as stream:
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=descriptor)
+        with os.fdopen(fd, "wb") as stream:
             stream.write(content)
             stream.flush()
+            os.fchmod(stream.fileno(), mode)
             os.fsync(stream.fileno())
-        temporary.chmod(mode)
-        os.replace(temporary, path)
+        if path in _WRITE_GUARDS:
+            _WRITE_GUARDS[path](descriptor)
+        os.replace(temporary, path.name, src_dir_fd=descriptor, dst_dir_fd=descriptor)
     finally:
-        temporary.unlink(missing_ok=True)
+        try:
+            os.unlink(temporary, dir_fd=descriptor)
+        except FileNotFoundError:
+            pass
+        if owned:
+            os.close(descriptor)
+
+
+@contextmanager
+def parent_handle(root: Path, name: str):
+    """Walk real directories with openat; a swapped ancestor cannot redirect a write."""
+    descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for part in Path(name).parts[:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        yield descriptor
+    finally:
+        os.close(descriptor)
+
+
+def copy_tree_at(source: Path, parent: int, leaf: str) -> None:
+    """Copy the prepared opaque dependency tree through pinned destination handles."""
+    os.mkdir(leaf, dir_fd=parent)
+    descriptor = os.open(leaf, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+    try:
+        for child in source.iterdir():
+            info = child.lstat()
+            if stat.S_ISLNK(info.st_mode):
+                os.symlink(os.readlink(child), child.name, dir_fd=descriptor)
+            elif stat.S_ISDIR(info.st_mode):
+                copy_tree_at(child, descriptor, child.name)
+            elif stat.S_ISREG(info.st_mode):
+                fd = os.open(child.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, stat.S_IMODE(info.st_mode), dir_fd=descriptor)
+                with child.open("rb") as src, os.fdopen(fd, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                    os.fchmod(dst.fileno(), stat.S_IMODE(info.st_mode))
+            else:
+                raise InstallError("prepared dependencies contain an unsupported file type")
+        os.fchmod(descriptor, stat.S_IMODE(source.stat().st_mode))
+    finally:
+        os.close(descriptor)
+
+
+def opaque_state_at(parent: int, leaf: str):
+    """Typed inert identity for the prepared dependency tree, including .bin links."""
+    info = os.stat(leaf, dir_fd=parent, follow_symlinks=False)
+    mode = stat.S_IMODE(info.st_mode)
+    if stat.S_ISLNK(info.st_mode):
+        return {"link": os.readlink(leaf, dir_fd=parent)}
+    fd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | (os.O_DIRECTORY if stat.S_ISDIR(info.st_mode) else 0), dir_fd=parent)
+    try:
+        opened = os.fstat(fd)
+        if (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
+            raise InstallError("dependency tree changed during observation")
+        if stat.S_ISDIR(info.st_mode):
+            return {"directory": {name: opaque_state_at(fd, name) for name in sorted(os.listdir(fd))},
+                    "mode": mode, "identity": [info.st_dev, info.st_ino]}
+        if not stat.S_ISREG(info.st_mode):
+            raise InstallError("unsupported dependency-tree object")
+        sha = hashlib.sha256()
+        while data := os.read(fd, 1024 * 1024):
+            sha.update(data)
+        after = os.fstat(fd)
+        if (after.st_mtime_ns, after.st_size, after.st_mode) != (info.st_mtime_ns, info.st_size, info.st_mode):
+            raise InstallError("dependency file changed during observation")
+        return {"file": sha.hexdigest(), "mode": mode}
+    finally:
+        os.close(fd)
+
+
+def remove_tree_at(parent: int, leaf: str, expected) -> None:
+    """Remove only the verified original poststate through pinned handles."""
+    if opaque_state_at(parent, leaf) != expected:
+        raise InstallError("dependency tree changed after publication")
+    if "directory" not in expected:
+        os.unlink(leaf, dir_fd=parent)
+        return
+    fd = os.open(leaf, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+    try:
+        for name, state in expected["directory"].items():
+            remove_tree_at(fd, name, state)
+        info = os.stat(leaf, dir_fd=parent, follow_symlinks=False)
+        if [info.st_dev, info.st_ino] != expected["identity"]:
+            raise InstallError("dependency directory changed during removal")
+        os.rmdir(leaf, dir_fd=parent)
+    finally:
+        os.close(fd)
 
 
 def apply_plan(plan: Plan, source: Path) -> None:
-    """Prepare network-dependent work first, then apply with rollback on error."""
+    """Recheck every typed mutation; rollback only uncontested recorded poststates."""
     with tempfile.TemporaryDirectory(prefix="sdw-install-") as temporary:
         temporary = Path(temporary)
         pinned_source = temporary / "distribution"
@@ -904,87 +1228,242 @@ def apply_plan(plan: Plan, source: Path) -> None:
         dependencies = prepare_dependencies(pinned_source, temporary) if plan.dependencies else None
         guard_active_worktree(plan.target)
         check_readset(plan.target, plan.readset)
-        # Recheck the read set after external commands; another writer may have edited it.
-        for name, expected in plan.before.items():
-            path = target_path(plan.target, name)
-            current = path.read_bytes() if path.is_file() else None
-            if current != expected:
-                raise InstallError(f"target changed while preparing installation: {name}")
+        expected = dict(plan.readset)
+        applied = []
         old_dependencies = None
         new_dependencies = None
-        changed = []
-        created_directories = []
+        dependency_handle = None
+        dependency_poststate = None
+        old_dependency_state = None
+        recovery = []
 
-        def ensure_directory(path):
-            missing = []
-            cursor = path
-            while cursor != plan.target and not cursor.exists():
-                missing.append(cursor)
-                cursor = cursor.parent
-            for directory in reversed(missing):
-                name = directory.relative_to(plan.target).as_posix()
-                directory.mkdir(mode=plan.directory_modes.get(name, 0o777))
-                created_directories.append(directory)
-                if name in plan.directory_modes:
-                    directory.chmod(plan.directory_modes[name])
+        def recheck():
+            check_readset(plan.target, expected)
 
-        def publish(name, path):
-            if name in plan.write_modes:
-                atomic_write(path, plan.writes[name], mode=plan.write_modes[name])
+        def parent_entry(name, present):
+            parent = Path(name).parent.as_posix()
+            state = expected[parent]
+            entries = set(state["directory"])
+            if present:
+                entries.add(Path(name).name)
             else:
-                atomic_write(path, plan.writes[name])
+                entries.discard(Path(name).name)
+            expected[parent] = {**state, "directory": sorted(entries)}
+
+        def ensure_directory(name):
+            if name == ".":
+                return
+            if name not in expected:
+                # Its parent was observed before any child operation.
+                remember(plan.target, name, expected)
+            state = expected[name]
+            if state is not None:
+                if "directory" not in state:
+                    raise InstallError(f"installation parent is not a real directory: {name}")
+                return
+            ensure_directory(Path(name).parent.as_posix())
+            recheck()
+            with parent_handle(plan.target, name) as fd:
+                os.mkdir(Path(name).name, plan.directory_modes.get(name, 0o777), dir_fd=fd)
+                if name in plan.directory_modes:
+                    os.chmod(Path(name).name, plan.directory_modes[name], dir_fd=fd, follow_symlinks=False)
+                mode = stat.S_IMODE(os.stat(Path(name).name, dir_fd=fd, follow_symlinks=False).st_mode)
+            info = (plan.target / name).lstat()
+            after = {"directory": [], "mode": mode, "identity": [info.st_dev, info.st_ino]}
+            applied.append((name, None, None, after))
+            expected[name] = after
+            parent_entry(name, True)
+
+        def publication_guard(name, before, descriptor):
+            """Revalidate the lexical parent and leaf after replacement staging."""
+            try:
+                identity = expected[Path(name).parent.as_posix()]["identity"]
+                pinned = os.fstat(descriptor)
+                with parent_handle(plan.target, name) as current:
+                    info = os.fstat(current)
+                    if ([info.st_dev, info.st_ino] != identity
+                            or [pinned.st_dev, pinned.st_ino] != identity):
+                        raise InstallError(f"target parent changed before publication: {name}")
+                if state_at(descriptor, Path(name).name, name) != before:
+                    raise InstallError(f"target changed before publication: {name}")
+            except (OSError, ValueError):
+                recovery.append(name)
+                raise
+
+        def mutate(name, kind, *, content=None, literal=None):
+            ensure_directory(Path(name).parent.as_posix())
+            recheck()
+            before = expected.get(name)
+            prior = plan.before.get(name)
+            path = plan.target / name
+            with parent_handle(plan.target, name) as fd:
+                info = os.fstat(fd)
+                if [info.st_dev, info.st_ino] != expected[Path(name).parent.as_posix()]["identity"]:
+                    raise InstallError(f"target parent changed while preparing installation: {name}")
+                if state_at(fd, Path(name).name, name) != before:
+                    raise InstallError(f"target changed before installation operation: {name}")
+                if kind == "write":
+                    mode = plan.write_modes.get(name, before.get("mode", 0o644) if before else 0o644)
+                    _WRITE_HANDLES[path] = fd
+                    _WRITE_GUARDS[path] = lambda descriptor: publication_guard(name, before, descriptor)
+                    try:
+                        atomic_write(path, content, mode=mode)
+                    finally:
+                        _WRITE_HANDLES.pop(path, None)
+                        _WRITE_GUARDS.pop(path, None)
+                    after = {"file": digest(content), "mode": mode}
+                elif kind == "unlink":
+                    os.unlink(Path(name).name, dir_fd=fd)
+                    after = None
+                elif kind == "rmdir":
+                    os.rmdir(Path(name).name, dir_fd=fd)
+                    after = None
+                elif kind == "link":
+                    temporary_name = ".sdw-link-" + uuid.uuid4().hex
+                    try:
+                        os.symlink(literal, temporary_name, dir_fd=fd)
+                        publication_guard(name, before, fd)
+                        os.replace(temporary_name, Path(name).name, src_dir_fd=fd, dst_dir_fd=fd)
+                    finally:
+                        try:
+                            os.unlink(temporary_name, dir_fd=fd)
+                        except FileNotFoundError:
+                            pass
+                    after = {"kind": "directory_symlink", "target": literal}
+                else:
+                    raise InstallError("unknown installation operation")
+            applied.append((name, before, prior, after))
+            expected[name] = after
+            if kind == "link":
+                for descendant in list(expected):
+                    if descendant.startswith(name + "/"):
+                        del expected[descendant]
+            parent_entry(name, after is not None)
 
         try:
             for name in plan.directories:
-                path = target_path(plan.target, name)
-                ensure_directory(path)
-            for name in sorted(set(plan.writes) - {MANIFEST}):
-                path = target_path(plan.target, name)
-                ensure_directory(path.parent)
-                publish(name, path)
-                changed.append(name)
+                ensure_directory(name)
+            # Canonical payload and consumer authorities precede structural discovery changes.
+            for name in sorted(set(plan.writes) - {MANIFEST, REGISTRY}):
+                mutate(name, "write", content=plan.writes[name])
             for name in plan.removals:
-                target_path(plan.target, name).unlink()
-                changed.append(name)
+                mutate(name, "unlink")
+            for name in plan.conversions + plan.directory_removals:
+                mutate(name, "rmdir")
+            for name in plan.link_removals:
+                mutate(name, "unlink")
+            for name, literal in plan.links.items():
+                mutate(name, "link", literal=literal)
             if dependencies is not None:
+                recheck()
                 destination = target_path(plan.target, f"{HARNESS}/node_modules")
-                ensure_directory(destination.parent)
-                new_dependencies = Path(tempfile.mkdtemp(prefix=".sdw-deps-", dir=destination.parent))
-                new_dependencies.rmdir()
-                shutil.copytree(dependencies, new_dependencies, symlinks=True)
-                if destination.exists():
-                    old_dependencies = Path(tempfile.mkdtemp(prefix=".sdw-old-deps-", dir=destination.parent))
-                    old_dependencies.rmdir()
-                    destination.rename(old_dependencies)
-                new_dependencies.rename(destination)
-                new_dependencies = destination
+                ensure_directory(HARNESS)
+                # Dependency preparation has no target writes. Keep the parent pinned
+                # through staging and rename; copytree receives its verified real path.
+                with parent_handle(plan.target, f"{HARNESS}/node_modules") as fd:
+                    dependency_handle = os.dup(fd)
+                    info = os.fstat(fd)
+                    if [info.st_dev, info.st_ino] != expected[HARNESS]["identity"]:
+                        raise InstallError("dependency parent changed before publication")
+                    new_dependencies = destination.parent / (".sdw-deps-" + uuid.uuid4().hex)
+                    copy_tree_at(dependencies, fd, new_dependencies.name)
+                    dependency_poststate = opaque_state_at(fd, new_dependencies.name)
+                    staged_name = new_dependencies.relative_to(plan.target).as_posix()
+                    parent_entry(staged_name, True)
+                    recheck()
+                    if state_at(fd, "node_modules", f"{HARNESS}/node_modules") != expected[f"{HARNESS}/node_modules"]:
+                        raise InstallError("dependency destination changed before publication")
+                    if expected[f"{HARNESS}/node_modules"] is not None:
+                        old_dependency_state = opaque_state_at(fd, "node_modules")
+                        old_dependencies = destination.parent / (".sdw-old-deps-" + uuid.uuid4().hex)
+                        os.rename("node_modules", old_dependencies.name, src_dir_fd=fd, dst_dir_fd=fd)
+                    os.rename(new_dependencies.name, "node_modules", src_dir_fd=fd, dst_dir_fd=fd)
+                    new_dependencies = destination
+                    parent_entry(staged_name, False)
+                # Only the dependency subtree and its parent's known temporary entries changed.
+                expected[f"{HARNESS}/node_modules"] = observe(plan.target, f"{HARNESS}/node_modules")
+                for name in list(expected):
+                    if name.startswith(f"{HARNESS}/node_modules/"):
+                        expected[name] = observe(plan.target, name)
+                parent_entry(f"{HARNESS}/node_modules", True)
+                if old_dependencies is not None:
+                    parent_entry(old_dependencies.relative_to(plan.target).as_posix(), True)
+            if REGISTRY in plan.writes:
+                mutate(REGISTRY, "write", content=plan.writes[REGISTRY])
             if MANIFEST in plan.writes:
-                path = target_path(plan.target, MANIFEST)
-                ensure_directory(path.parent)
-                publish(MANIFEST, path)
-                changed.append(MANIFEST)
-        except BaseException:
-            for name in reversed(changed):
-                path = target_path(plan.target, name)
-                prior = plan.before[name]
-                if prior is None:
-                    path.unlink(missing_ok=True)
-                else:
-                    _atomic_write(path, prior, plan.before_modes[name])
-            if new_dependencies is not None and new_dependencies.exists():
-                shutil.rmtree(new_dependencies)
-            if old_dependencies is not None:
-                old_dependencies.rename(plan.target / HARNESS / "node_modules")
-            for path in reversed(created_directories):
-                if path.exists() and not any(path.iterdir()):
-                    path.rmdir()
+                mutate(MANIFEST, "write", content=plan.writes[MANIFEST])
+        except BaseException as failure:
+            # Preserve a concurrently changed dependency tree rather than deleting it.
+            if dependency_handle is not None:
+                try:
+                    if new_dependencies is not None:
+                        if dependency_poststate is None:
+                            recovery.append(new_dependencies.relative_to(plan.target).as_posix())
+                        else:
+                            remove_tree_at(dependency_handle, new_dependencies.name, dependency_poststate)
+                    if old_dependencies is not None:
+                        if opaque_state_at(dependency_handle, old_dependencies.name) != old_dependency_state:
+                            raise InstallError("old dependency tree changed during installation")
+                        try:
+                            os.stat("node_modules", dir_fd=dependency_handle, follow_symlinks=False)
+                        except FileNotFoundError:
+                            os.rename(old_dependencies.name, "node_modules", src_dir_fd=dependency_handle, dst_dir_fd=dependency_handle)
+                        else:
+                            raise InstallError("dependency destination changed during rollback")
+                except (OSError, ValueError):
+                    recovery.append(f"{HARNESS}/node_modules")
+                    if old_dependencies is not None:
+                        recovery.append(old_dependencies.relative_to(plan.target).as_posix())
+                finally:
+                    os.close(dependency_handle)
+                    dependency_handle = None
+            for name, before, prior, after in reversed(applied):
+                try:
+                    current = observe(plan.target, name)
+                    if current != after:
+                        recovery.append(name)
+                        continue
+                    with parent_handle(plan.target, name) as fd:
+                        # Observation and mutation must concern the same real parent,
+                        # including directories restored earlier in reverse traversal.
+                        publication_guard(name, after, fd)
+                        leaf = Path(name).name
+                        if before is None:
+                            if after is not None:
+                                if "directory" in after:
+                                    os.rmdir(leaf, dir_fd=fd)
+                                else:
+                                    os.unlink(leaf, dir_fd=fd)
+                        elif "directory" in before:
+                            os.mkdir(leaf, before["mode"], dir_fd=fd)
+                            os.chmod(leaf, before["mode"], dir_fd=fd, follow_symlinks=False)
+                            expected[name] = state_at(fd, leaf, name)
+                        elif "file" in before:
+                            path = plan.target / name
+                            _WRITE_HANDLES[path] = fd
+                            _WRITE_GUARDS[path] = lambda descriptor: publication_guard(name, after, descriptor)
+                            try:
+                                _atomic_write(path, prior, before["mode"])
+                            finally:
+                                _WRITE_HANDLES.pop(path, None)
+                                _WRITE_GUARDS.pop(path, None)
+                        else:
+                            os.symlink(before["target"], leaf, dir_fd=fd)
+                except (OSError, ValueError):
+                    recovery.append(name)
+            if recovery:
+                raise InstallError("installation failed; concurrent changes preserved; recovery required: " + ", ".join(sorted(set(recovery)))) from failure
             raise
         else:
-            if old_dependencies is not None:
-                shutil.rmtree(old_dependencies)
+            if dependency_handle is not None:
+                try:
+                    if old_dependencies is not None:
+                        remove_tree_at(dependency_handle, old_dependencies.name, old_dependency_state)
+                except (OSError, ValueError):
+                    plan.retained.append(old_dependencies.relative_to(plan.target).as_posix())
+                finally:
+                    os.close(dependency_handle)
             if plan.legacy_root:
-                # Only prune ancestors of removed owned files. Empty unowned
-                # directories and symlink targets are never cleanup candidates.
                 parents = set()
                 legacy = plan.target / plan.legacy_root
                 for name in plan.removals:
@@ -995,10 +1474,9 @@ def apply_plan(plan: Plan, source: Path) -> None:
                 for path in sorted(parents, key=lambda p: len(p.parts), reverse=True):
                     try:
                         if path.is_dir() and not path.is_symlink() and not any(path.iterdir()):
-                            path.rmdir()
+                            with parent_handle(plan.target, path.relative_to(plan.target).as_posix()) as fd:
+                                os.rmdir(path.name, dir_fd=fd)
                     except OSError:
-                        # Pruning is cosmetic after a successful transaction;
-                        # concurrent or protected leftovers must stay intact.
                         continue
 
 
@@ -1011,12 +1489,14 @@ def installation(target: Path, *, project: str | None = None, spec_root=".", sco
     guard_active_worktree(target)
     authority_paths = [name for harness in (HARNESS, LEGACY_HARNESS)
                        for name in (harness, f"{harness}/install.json", f"{harness}/projects.yaml")]
-    initial_readset = {name: observe(target, name) for name in authority_paths}
+    initial_readset = {}
+    for name in authority_paths:
+        remember(target, name, initial_readset)
     old_harness = installation_layout(target)
     old = load_manifest(target, harness=old_harness)
     if update and old is None:
         raise InstallError("target has no workflow installation to update")
-    registry = load_registry(target, readset=initial_readset, harness=old_harness)
+    registry = load_registry(target, readset=initial_readset, harness=old_harness, migration=True)
     validate_registry(target, registry)
     registrations = dict(old["projects"]) if old else {}
     if not update:
@@ -1031,11 +1511,21 @@ def installation(target: Path, *, project: str | None = None, spec_root=".", sco
         project = matching[0] if matching else project or project_identifier(spec_root, registry["projects"])
         previous = registry["projects"].get(project)
         existing = previous
+        settings_path = workflow_name(spec_root)
+        if previous is not None:
+            schema = read_yaml(target_path(target, f"{old_harness}/projects.yaml"))["schema_version"]
+            settings_path = workflow_name(spec_root, schema) if schema >= 2 else f"{old_harness}/projects.yaml"
         if existing is None:
             local = read_workflow(target, spec_root, readset=initial_readset)
+            legacy_local = read_workflow(target, spec_root, readset=initial_readset, schema_version=2)
+            if local is not None and legacy_local is not None and local != legacy_local:
+                raise InstallError("workflow configuration conflicts with migration destination")
+            if local is None and legacy_local is not None:
+                settings_path = workflow_name(spec_root, 2)
+            local = local if local is not None else legacy_local
             if local is not None:
-                existing = {"root": spec_root, "queue": join(spec_root, "openspec/queue.yaml"), **local}
-        default = {"root": spec_root, "queue": join(spec_root, "openspec/queue.yaml"),
+                existing = {"root": spec_root, "queue": join(spec_root, "openspec/dependency-map.yaml"), **local}
+        default = {"root": spec_root, "queue": join(spec_root, "openspec/dependency-map.yaml"),
                    "code_roots": [spec_root], "checks": [],
                    "environment": {"lockfiles": [], "prepare": []}, "evidence_exclude": []}
         configuration = {**(existing or default)}
@@ -1046,9 +1536,9 @@ def installation(target: Path, *, project: str | None = None, spec_root=".", sco
         if lockfiles is not None:
             configuration["environment"] = {**configuration["environment"], "lockfiles": sorted(set(lockfiles))}
         if not configuration["checks"]:
-            raise InstallError("provide --check commands or checks in openspec/workflow.yaml")
+            raise InstallError(f"provide --check commands or checks in {settings_path}")
         if existing is not None and existing != configuration:
-            raise InstallError("project already has different local configuration; edit openspec/workflow.yaml explicitly and use update")
+            raise InstallError(f"project already has different local configuration; edit {settings_path} explicitly and use update")
         prior_agents = registrations.get(project, {}).get("agents", ["codex", "claude"])
         selected_agents = sorted(set(prior_agents if agents is None else agents))
         if not selected_agents or not set(selected_agents) <= AGENTS:
@@ -1057,6 +1547,8 @@ def installation(target: Path, *, project: str | None = None, spec_root=".", sco
         registrations[project] = {"agents": selected_agents, "root": configuration["root"]}
     if set(registrations) != set(registry["projects"]):
         raise InstallError("every registered domain needs an explicit installation record")
+    for item in registry["projects"].values():
+        item["queue"] = join(item["root"], "openspec/dependency-map.yaml")
     plan = build_plan(target, source, registry, registrations, old, initial_readset, old_harness=old_harness)
     if not dry_run:
         apply_plan(plan, source)
@@ -1088,6 +1580,10 @@ def doctor(target: Path) -> dict:
         project_config(target, project["root"], required=True)
         if not target_path(target, project["queue"]).is_file():
             raise InstallError(f"missing dependency queue for {name}")
+        dependency_document(target_path(target, project["queue"]))
+        alternate = join(project["root"], "openspec/queue.yaml" if project["queue"].endswith("dependency-map.yaml") else "openspec/dependency-map.yaml")
+        if target_path(target, alternate).exists():
+            raise InstallError(f"ambiguous dependency map: {alternate}")
         verify_project_root(target, project, harness)
     return {"status": "valid", "workflow_version": manifest["workflow_version"],
             "openspec_version": manifest["openspec_version"], "projects": sorted(registry["projects"]),

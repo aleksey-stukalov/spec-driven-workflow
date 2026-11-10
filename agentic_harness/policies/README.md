@@ -30,6 +30,10 @@ not supply them.
 a registered project and require these shared policies. They do not replace
 OpenSpec-generated skills or grant permission to implement, publish or merge.
 
+Canonical skill bodies live under `agentic_harness/skills/`. Individual relative
+directory links expose them in selected agent discovery locations. Read their
+referenced policies explicitly; link discovery alone does not load the process.
+
 Installation adds explicit routing to existing repository instructions. It must
 preserve unrelated instructions and agent settings. Read the routed documents;
 do not assume that discovering a skill has loaded every policy or selected the

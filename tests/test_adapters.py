@@ -42,12 +42,28 @@ def test_checked_in_integrations_match_the_validated_catalog():
 
 
 def test_required_skill_references_exist():
-    for path, content in adapters.outputs(REGISTRY, ["codex", "claude"]).items():
-        if not path.endswith("SKILL.md"):
-            continue
-        for link in re.findall(r"\]\(([^)]+)\)", content):
-            target = adapters.SOURCE / Path(path).parent / link
-            assert target.resolve().is_file(), str(target)
+    from skill_links import discovery_links
+    for name in adapters.SKILLS:
+        path = f"agentic_harness/skills/{name}/SKILL.md"
+        content = (adapters.SOURCE / path).read_text()
+        assert yaml.safe_load(content.split("---", 2)[1])["name"] == name
+        for lexical in [path, *[leaf + "/SKILL.md" for leaf in discovery_links(["codex", "claude"]) if leaf.endswith("/" + name)]]:
+            for link in re.findall(r"\]\(([^)]+)\)", content):
+                assert link.startswith("../../../agentic_harness/")
+                # Normalize lexically: discovery links must work from the provider's location.
+                import os
+                target = Path(os.path.normpath(adapters.SOURCE / Path(lexical).parent / link))
+                assert target.is_file(), str(target)
+
+
+def test_discovery_plan_is_separate_from_regular_adapters():
+    generated = adapters.outputs(REGISTRY, ["codex"])
+    assert all("/skills/" not in path for path in generated)
+    assert len(adapters.links(["codex"])) == 3
+    for path, target in adapters.links(["codex", "claude"]).items():
+        assert (adapters.SOURCE / path).is_symlink()
+        import os
+        assert os.readlink(adapters.SOURCE / path) == target
 
 
 def test_entrypoint_names_each_domain_without_global_application():
@@ -63,7 +79,7 @@ def test_entrypoint_settings_link_supports_spaces_in_the_project_path():
     parsed = MarkdownIt().parse(adapters.entrypoint(registry))
     links = [child.attrGet("href") for token in parsed for child in token.children or []
              if child.type == "link_open"]
-    assert "services/my%20api/openspec/workflow.yaml" in links
+    assert "agentic_harness/config/services/my%20api/workflow.yaml" in links
 
 
 def test_invalid_catalog_rejected_before_rendering(tmp_path, monkeypatch):

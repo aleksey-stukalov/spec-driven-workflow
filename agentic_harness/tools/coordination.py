@@ -26,6 +26,7 @@ import time
 import uuid
 
 import yaml
+from dependency_maps import parse as parse_dependency_map
 
 
 class CoordinationError(ValueError):
@@ -170,7 +171,7 @@ class Project:
 
 
 class _UniqueLoader(yaml.SafeLoader):
-    pass
+    """Strict metadata loader; dependency documents use the shared parser."""
 
 
 def _mapping(loader, node, deep=False):
@@ -187,29 +188,17 @@ _UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _m
 
 
 def validate_queue(project):
-    """Validate the entire ordered queue, not merely the selected prefix."""
+    """Validate ordered syntax, then separately require execution-ready changes."""
     try:
-        data = yaml.load(project.queue_path.read_text(), Loader=_UniqueLoader)
-    except yaml.YAMLError as exc:
-        raise CoordinationError(f"malformed queue YAML: {exc}") from exc
-    if not isinstance(data, dict) or set(data) != {"queue"} or not isinstance(data["queue"], list):
-        raise CoordinationError("queue schema requires exactly a queue list")
+        document = parse_dependency_map(project.queue_path.read_text(), label=str(project.queue_path))
+    except (ValueError, UnicodeError) as exc:
+        raise CoordinationError(str(exc)) from exc
     seen, entries = set(), []
-    for item in data["queue"]:
-        if not isinstance(item, dict) or set(item) != {"change", "depends_on"}:
-            raise CoordinationError("queue entry requires exactly change and depends_on")
+    for item in document:
         name, deps = item["change"], item["depends_on"]
         qualified = project.qualified(name)
-        if name in seen:
-            raise CoordinationError(f"duplicate full ID: {qualified}")
-        if not isinstance(deps, list):
-            raise CoordinationError(f"{qualified}: depends_on must be a list")
-        checked = [project.qualified(dep) for dep in deps]
-        if len(set(checked)) != len(checked):
-            raise CoordinationError(f"{qualified}: duplicate dependency")
         for dep in deps:
-            if dep not in seen:
-                raise CoordinationError(f"{qualified}: dependency {dep} missing, cyclic or out of order")
+            project.qualified(dep)
         active = project.changes / name
         archived = list((project.changes / "archive").glob(f"????-??-??-{name}"))
         archived = [path for path in archived if path.is_dir()]
@@ -312,7 +301,10 @@ def source_state(path):
     for name in sorted(set(filter(None, names))):
         file = Path(path) / name
         digest.update(name.encode(errors="surrogateescape") + b"\0")
-        if file.is_symlink():
+        if any((Path(path).joinpath(*Path(name).parts[:n])).is_symlink()
+               for n in range(1, len(Path(name).parts))):
+            digest.update(b"missing")
+        elif file.is_symlink():
             digest.update(b"link\0" + os.readlink(file).encode())
         elif file.is_file():
             digest.update(b"file\0" + str(file.stat().st_mode & 0o777).encode() + b"\0" + file.read_bytes())
@@ -458,7 +450,23 @@ class CoordinationStore:
             workspace = self._get(db, "workspace", claim["worktree"])
             if not workspace:
                 raise CoordinationError("owned workspace required")
-            paths = [str(canonical_location(Path(claim["worktree"]) / f, claim["worktree"])) for f in files]
+            import projects
+            paths = []
+            for relative in files:
+                try:
+                    path = projects.assignment_path(Path(claim["worktree"]), relative)
+                except ValueError as exc:
+                    # A reviewer may reserve an immutable deleted original below
+                    # a newly linked discovery directory. Writers never may.
+                    import evidence
+                    if mode != "reviewer" or evidence._lexical_exists(Path(claim["worktree"]), relative):
+                        raise CoordinationError(f"invalid assignment path: {exc}") from exc
+                    try:
+                        evidence._tree(self.repository_id, claim["base_revision"], relative)
+                    except ValueError as original_error:
+                        raise CoordinationError(f"invalid deleted review path: {original_error}") from original_error
+                    path = Path(claim["worktree"]) / relative
+                paths.append(str(path))
             current = source_state(claim["worktree"])
             if current["content_revision"] != input_revision:
                 raise CoordinationError("assignment source revision changed")
@@ -920,8 +928,8 @@ def _retained(store, db, path, record, reference, linked_worktrees):
         if not bundle.is_absolute() or any(bundle.resolve().is_relative_to(root) for root in linked_worktrees):
             return 'retention bundle must remain outside every linked worktree'
         manifest = evidence.verify(bundle, Path(path), current_head_required=False)
-        if manifest.get('schema_version') != 3:
-            return 'cleanup requires retained source schema 3 with executable modes'
+        if manifest.get('schema_version') not in (3, 4):
+            return 'cleanup requires retained source schema 3 or 4 with executable modes'
         claim = store._get(db, 'claim', record['claim'])
         if (manifest['repository'], manifest['project'], manifest['change'], manifest['run_id']) != (store.repository_id, claim['project'], claim['change'], claim['run']):
             return 'retention bundle identity differs from owned work'

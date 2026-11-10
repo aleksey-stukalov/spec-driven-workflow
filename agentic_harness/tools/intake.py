@@ -52,10 +52,10 @@ def _paths(value, label, root=None, *, allow_root=False):
         if path.is_absolute() or "\\" in item or "\0" in item or any(part in ("", ".", "..") for part in item.split("/")):
             raise ValueError(f"{label}: canonical repository-relative paths required")
         if root is not None:
-            absolute = root / path
-            if not absolute.resolve().is_relative_to(root) or any(root.joinpath(*path.parts[:n]).is_symlink()
-                                                                for n in range(1, len(path.parts) + 1)):
-                raise ValueError(f"{label}: aliased or escaped path")
+            try:
+                projects.assignment_path(root, item)
+            except ValueError as exc:
+                raise ValueError(f"{label}: aliased or escaped path: {exc}") from exc
     return sorted(result)
 
 

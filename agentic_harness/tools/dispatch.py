@@ -142,8 +142,8 @@ def execute(request, *, run=subprocess.run):
     state = _ledger_state(request['ledger'], request['run_id'])
     if (manifest['project'], manifest['change'], manifest['run_id']) != (state['project'], state['change'], request['run_id']):
         raise ValueError('dispatch scope differs from retained inputs')
-    if manifest.get('policy') != state['policy_version'] or (state['policy_version'] == 'plans-v1' and manifest.get('schema_version') != 3):
-        raise ValueError('plans-v1 dispatch requires retained source schema 3 with current policy')
+    if manifest.get('policy') != state['policy_version'] or (state['policy_version'] == 'plans-v1' and manifest.get('schema_version') not in (3, 4)):
+        raise ValueError('plans-v1 dispatch requires retained source schema 3 or 4 with current policy')
     admitted_intake = intake.validate_intake(json.loads(lifecycle.original(request['intake'], root)), root)
     if (admitted_intake['project'], admitted_intake['change']) != (state['project'], state['change']):
         raise ValueError('intake differs from run scope')
@@ -176,7 +176,7 @@ def execute(request, *, run=subprocess.run):
     modes = []
     active_change = root / registration['root'] / 'openspec/changes' / state['change']
     def planning_artifact(relative):
-        target = projects.relative_path(root, relative)
+        target = projects.assignment_path(root, relative)
         return (active_change.is_dir() and not target.is_dir() and target.is_relative_to(active_change)
                 and (target.suffix == '.md' or target == active_change / '.openspec.yaml'))
     for source, step in zip(sources, steps):
@@ -196,7 +196,7 @@ def execute(request, *, run=subprocess.run):
             if not isinstance(owned_paths, list) or not owned_paths or any(not isinstance(p, str) or not p for p in owned_paths):
                 raise ValueError('writer requires exact nonempty owned paths')
             for owned in owned_paths:
-                canonical = projects.relative_path(root, owned)
+                canonical = projects.assignment_path(root, owned)
                 if canonical.relative_to(root).as_posix() != owned:
                     raise ValueError('owned writer paths must be canonical explicit files')
             if writes in {'assigned_design', 'assigned_specs'} and not all(planning_artifact(p) for p in owned_paths):
@@ -253,6 +253,8 @@ def execute(request, *, run=subprocess.run):
         prompt += ('\nWrite only the exact owned paths in the named implementation workspace; preserve every other file.'
                    if mode == 'writer' else '\nDo not edit source or implementation files; use assigned external scratch space only.')
         prompt += '\nReturn the full structured result, complete coverage and input_revision=' + manifest['input_revision'] + '. Do not launch nested agents.\n'
+        if manifest.get('schema_version') == 4:
+            prompt += 'Discovery links with input_modes=120000 are inert regular target-text records under retained_bundle/source. Read canonical skill content at agentic_harness/skills/<name>/SKILL.md; link records are metadata.\n'
         if manifest['deleted_files']:
             prompt += 'Review deleted originals under retained_bundle/deleted-source against the declared deletion paths.\n'
         (directory / 'prompt.txt').write_text(prompt)

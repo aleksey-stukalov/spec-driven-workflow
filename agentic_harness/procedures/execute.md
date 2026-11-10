@@ -23,7 +23,9 @@ filenames identify the requests you prepared. Later `harness.py` references abbr
 
    Read the returned specification home, source scope, queue, checks and
    environment policy. Read native context and rules in its `openspec/config.yaml`
-   (or existing `config.yml`) and executable settings in `openspec/workflow.yaml`.
+   (or existing `config.yml`) and executable settings at the returned `workflow`
+   path under `agentic_harness/config/`. Legacy schemas retain their recorded
+   inline or OpenSpec-local settings until installer migration.
    Keep the returned `id` in all machine requests for this run. The internal index
    preserves stable identifiers; you do not need to invent or remember one.
    Read the selected change and applicable target instructions. The wrapper
@@ -59,7 +61,12 @@ filenames identify the requests you prepared. Later `harness.py` references abbr
    `harness.py source capture SOURCE.json`. Use a fresh destination outside the
    worktree and explicit nonignored source paths. Capture intended untracked
    files as well as committed and modified files; retain executable modes and
-   declared deleted originals from the pinned base. Honor project exclusions
+   declared deleted originals from the pinned base. Approved discovery links
+   require their canonical `SKILL.md` explicitly in scope. Schema-4 bundles store
+   literal link text as inert regular files, with original type `120000` in the
+   manifest; tell reviewers where the canonical skill content lives. Include
+   old child-file deletions displaced by a new directory link. Unsupported
+   same-leaf regular/link transitions fail explicitly. Honor project exclusions
    and reject unsafe or secret paths. Verify the resulting bundle before use;
    its `input_revision` is the ledger's initial source revision.
 
@@ -98,7 +105,8 @@ filenames identify the requests you prepared. Later `harness.py` references abbr
     [OpenSpec lifecycle](../policies/openspec.md). Final coverage includes changed,
     new and deleted paths, synchronized capability bodies, archived change
     artifacts, queue, native configuration, internal index and the selected
-    `openspec/workflow.yaml` containing check authority. Archive relocation needs
+    harness settings file containing check authority, dependency map, approved
+    discovery links and their canonical skill inputs. Archive relocation needs
     a newly bound design snapshot and affected independent acceptance. Confirm full review
     originals and final-source correspondence before claiming readiness.
 

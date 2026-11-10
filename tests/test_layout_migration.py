@@ -9,7 +9,7 @@ import subprocess
 import pytest
 import yaml
 
-from test_installer import adopt, distribution, files, legacy_configuration, target, workflow
+from test_installer import adopt, distribution, files, legacy_configuration, current_configuration, target, workflow
 
 
 LEGACY = "_agentic_harness"
@@ -25,8 +25,7 @@ def legacy_installation(source, target, *, version=2, root="."):
     adopt(source, target, project="stable_backend", spec_root=root, scopes=scopes,
           checks=[["make", "verify-backend"]], agents=["codex", "claude"])
     expected = workflow.load_registry(target)
-    if version == 1:
-        legacy_configuration(target)
+    legacy_configuration(target, version=version)
     current = target / workflow.HARNESS
     previous = target / LEGACY
     current.rename(previous)
@@ -73,7 +72,7 @@ def test_legacy_directory_upgrade_preserves_configuration_and_is_repeatable(
         preserved[settings] = settings.read_bytes()
 
     assert workflow.doctor(target)["status"] == "valid"
-    assert workflow.load_registry(target) == expected
+    assert current_configuration(workflow.load_registry(target)) == expected
     before = files(target)
     before_calls = list(calls)
     preview = workflow.installation(target, source=source, update=True, dry_run=True)
@@ -92,6 +91,8 @@ def test_legacy_directory_upgrade_preserves_configuration_and_is_repeatable(
     assert not (target / LEGACY / "projects.yaml").exists()
     assert (target / workflow.HARNESS / "policies/example.md").is_file()
     assert not (target / LEGACY / "policies/example.md").exists()
+    if settings in preserved:
+        preserved[target / workflow.workflow_name(root)] = preserved.pop(settings)
     assert {path: path.read_bytes() for path in preserved} == preserved
     assert (target / "AGENTS.md").read_text().startswith("# Local policy\n")
 
@@ -150,22 +151,21 @@ def test_successful_migration_preserves_permissions_before_publishing_files(
 
     # This file has no legacy owner; it keeps the ordinary new-file mode.
     (source / workflow.HARNESS / "tools/new.md").write_text("New package guidance.\n")
-    replace = workflow.os.replace
+    publish = workflow.atomic_write
     published = set()
 
-    def inspect_publication(temporary, destination):
-        destination = Path(destination)
+    def inspect_publication(destination, content, **kwargs):
         if destination.is_relative_to(current):
             name = destination.relative_to(current).as_posix()
             assert current.stat().st_mode & 0o7777 == root_mode
             if name.startswith("tools/"):
                 assert (current / "tools").stat().st_mode & 0o7777 == tools_mode
             if name in modes:
-                assert Path(temporary).stat().st_mode & 0o7777 == modes[name]
+                assert kwargs["mode"] == modes[name]
                 published.add(name)
-        return replace(temporary, destination)
+        return publish(destination, content, **kwargs)
 
-    monkeypatch.setattr(workflow.os, "replace", inspect_publication)
+    monkeypatch.setattr(workflow, "atomic_write", inspect_publication)
     workflow.installation(target, source=source, update=True)
     for name, mode in modes.items():
         assert (current / name).stat().st_mode & 0o7777 == mode
@@ -349,7 +349,7 @@ def test_legacy_evidence_exclusion_is_preserved_when_unowned_content_remains(dis
     companion.write_text(yaml.safe_dump(configuration))
     before = companion.read_bytes()
     workflow.installation(target, source=source, update=True)
-    assert companion.read_bytes() == before
+    assert (target / workflow.workflow_name(".")).read_bytes() == before
     assert private.read_bytes() == b"Local evidence exclusion remains authoritative.\n"
     assert workflow.load_registry(target)["projects"]["stable_backend"]["evidence_exclude"] == [LEGACY + "/private"]
 

@@ -57,6 +57,12 @@ source bundles, executable modes, deleted originals and available usage records
 outside the worktree. Keep summaries separate. Bind check results and both review
 phases to the relevant final source revisions.
 
+Approved SDW discovery links are retained as inert target-text files with typed
+metadata, alongside explicitly selected canonical skill content. Review both
+the link identity and that content. Do not follow a retained record as a link or
+omit old child-file originals displaced by a directory-to-link conversion.
+Ordinary aliases remain forbidden; historical bundles keep their original schemas.
+
 Missing, partial, stale, unbound or malformed reports do not count as clean.
 Successful transport completion is not acceptance. Wait for launched siblings
 to settle before dependent edits. An uncertain launch keeps its reservation
