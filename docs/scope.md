@@ -1,8 +1,12 @@
 # Applying the workflow to part of a repository
 
-An adopted project is a named development domain with one OpenSpec authority.
-It may cover the whole repository, one directory, or several disjoint directories.
-The domain boundary follows work and contracts; it need not match one folder.
+A project registration gives a name to the part of a repository using this
+workflow. For example, `--project app` can name the whole repository, while
+`--project backend` can name a backend and its tests. The name is a label you
+choose; the configured paths determine which files belong to it.
+
+Each registration has one OpenSpec home. It may cover the whole repository,
+one directory, or several disjoint directories that share a change lifecycle.
 
 ## Separate the boundaries
 
@@ -30,8 +34,8 @@ unsafe paths remain unsuitable for retained evidence. Task and assignment scope
 must still be bounded; whole-repository adoption is not unlimited task authority.
 
 For partial adoption, list the actual source and test roots. For example,
-`services/api` and `tests/api` may form one project. Its OpenSpec home may be
-`services/api` or a separately selected project directory. Register checks that
+`backend` and `tests/backend` may form one project. Its OpenSpec home may be
+`backend` or a separately selected project directory. Register checks that
 validate this behavior and its affected shared interfaces.
 
 Do not create a separate specification project for every physical folder. Use
