@@ -36,7 +36,9 @@ head; readiness or permission to open a pull request does not imply it.
 
 ## Change selection and queue
 
-Resolve the registered project's `queue` from the repository root. Preserve one
+Resolve the registered project's `queue` from the repository root. For schema 3
+this is the selected home's `openspec/dependency-map.yaml`; the ordered YAML
+`queue` list and internal property name remain unchanged. Preserve one
 queue and one specification authority for that project. Queue entries retain
 stable identifiers and dependencies; their order is explicit in the queue, not
 in filenames or numeric identifiers.

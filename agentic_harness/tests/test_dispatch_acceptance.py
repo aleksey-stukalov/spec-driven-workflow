@@ -12,10 +12,21 @@ import dispatch
 import lifecycle
 
 
-def test_real_dispatch_originals_pass_final_lifecycle_acceptance(repository, tmp_path):
+@pytest.mark.parametrize('convert_skill', [False, True])
+def test_real_dispatch_originals_pass_final_lifecycle_acceptance(repository, tmp_path, convert_skill):
     scratch, repo = tmp_path, repository
+    leaf = '.agents/skills/sdw-run'
+    canonical = 'agentic_harness/skills/sdw-run/SKILL.md'
+    copied = leaf + '/SKILL.md'
+    if convert_skill:
+        old = repo / copied; old.parent.mkdir(parents=True); old.write_text('old copied body')
+        git(repo, 'add', '.'); git(repo, 'commit', '-m', 'old copied discovery')
     request,ledger,store,initial=setup_dispatch(repo,scratch)
     root=Path(request['worktree']); store.thaw(root,'fixture')
+    if convert_skill:
+        old = root / copied; old.unlink(); old.parent.rmdir()
+        body = root / canonical; body.parent.mkdir(parents=True); body.write_text('canonical body')
+        (root / leaf).symlink_to('../../agentic_harness/skills/sdw-run')
     active=root/'project/openspec/changes'/CHANGE
     archive=active.parent/'archive'/('2026-11-09-'+CHANGE);archive.parent.mkdir();active.rename(archive)
     (archive/'tasks.md').write_text('- [x] Verified implementation\n')
@@ -48,6 +59,16 @@ def test_real_dispatch_originals_pass_final_lifecycle_acceptance(repository, tmp
     gate=dict(worktree=str(root),bundle=str(bundle),design_bundle=str(bundle),ledger=request['ledger'],project='synthetic',change=CHANGE,checks=[check],originals=originals)
     for phase in ('D','I'):assert ledger.gate(run_id='run',phase=phase,input_revision=manifest['input_revision'],checks_passed=True)['accepted']
     assert lifecycle.acceptance_gate(gate)['status'] == 'verified'
+    if convert_skill:
+        assert manifest['input_modes'][leaf] == '120000'
+        assert canonical in manifest['input_scope'] and copied in manifest['deleted_files']
+        assert (bundle / 'deleted-source' / copied).read_text() == 'old copied body'
+        assert 'inert regular target-text records' in Path(originals['I0']['prompt']['path']).read_text()
+        reduced = scratch / 'omitted-link'
+        evidence.materialize(root, reduced, sorted(set(scope) - {leaf}), deleted_scope=changed['deleted_scope'],
+            project='synthetic', change=CHANGE, run_id='run', base=base, policy='plans-v1')
+        with pytest.raises(ValueError, match='omits changed source'):
+            lifecycle.acceptance_gate({**gate, 'bundle': str(reduced)})
     invocation_path = Path(originals['D0']['invocation']['path'])
     invocation = json.loads(invocation_path.read_text())
     assert invocation['launch']['effective'] == ledger.status('run')['launches']['D0']['effective']

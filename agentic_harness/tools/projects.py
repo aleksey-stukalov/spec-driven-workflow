@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 import yaml
+from dependency_maps import parse as parse_dependency_map
 
 ROOT = Path(__file__).resolve().parents[2]
 INDEX_PATH = "agentic_harness/projects.yaml"
@@ -54,6 +55,20 @@ def relative_path(root: Path, value: str, *, exists=False) -> Path:
     return path
 
 
+def assignment_path(root: Path, value: str) -> Path:
+    """Admit an exact approved discovery object without granting its descendants."""
+    import skill_links
+    try:
+        skill_links.expected_target(value)
+    except ValueError:
+        return relative_path(root, value)
+    parent = relative_path(root, Path(value).parent.as_posix())
+    leaf = parent / Path(value).name
+    if leaf.is_symlink():
+        skill_links.validate_link(root, value)
+    return leaf
+
+
 def relative_root(root: Path, value: str, *, exists=False) -> Path:
     """Resolve a configured root; only this API permits the repository itself."""
     if value == ".":
@@ -76,7 +91,7 @@ def scope_contains(scope: str, path: str) -> bool:
 def editable_areas(project: dict) -> list[str]:
     """Domain source and its own OpenSpec metadata are distinct owned areas."""
     metadata = (Path(project["root"]) / "openspec").as_posix()
-    return list(dict.fromkeys([*project["code_roots"], metadata]))
+    return list(dict.fromkeys([*project["code_roots"], metadata, *([project["workflow"]] if "workflow" in project else [])]))
 
 
 def config_path(root: Path, project: dict) -> Path:
@@ -122,27 +137,42 @@ def _index(root: Path) -> dict:
     path = relative_path(root, INDEX_PATH, exists=True)
     data = _read_yaml(path)
     if (not isinstance(data, dict) or set(data) != {"schema_version", "projects"}
-            or type(data["schema_version"]) is not int or data["schema_version"] not in (1, 2)):
-        raise ValueError("projects.yaml: expected schema_version 1 or 2 and projects")
+            or type(data["schema_version"]) is not int or data["schema_version"] not in (1, 2, 3)):
+        raise ValueError("projects.yaml: expected schema_version 1, 2 or 3 and projects")
     if not isinstance(data["projects"], dict) or not data["projects"]:
         raise ValueError("projects.yaml: empty project registration")
     return data
 
 
+def workflow_path(project_root: str, schema_version: int = 3) -> str:
+    """Pure deterministic settings path; legacy schemas keep their companion."""
+    scope_contains(project_root, project_root)
+    if type(schema_version) is not int or schema_version not in (1, 2, 3):
+        raise ValueError("unsupported project index schema")
+    if schema_version < 3:
+        return (Path(project_root) / "openspec/workflow.yaml").as_posix()
+    return (Path("agentic_harness/config") / project_root / "workflow.yaml").as_posix()
+
+
 def _workflow_path(project_root: str) -> str:
-    return (Path(project_root) / "openspec/workflow.yaml").as_posix()
+    return workflow_path(project_root, 2)
 
 
-def _workflow(root: Path, project_root: str) -> dict:
-    path = relative_path(root, _workflow_path(project_root), exists=True)
-    data = _read_yaml(path)
-    required = {"schema_version", "code_roots", "checks"}
-    optional = {"environment", "evidence_exclude"}
-    if (not isinstance(data, dict) or not required <= set(data)
-            or set(data) - required - optional
-            or type(data["schema_version"]) is not int or data["schema_version"] != 1):
+def _workflow(root: Path, project_root: str, schema_version: int = 2) -> dict:
+    path = relative_path(root, workflow_path(project_root, schema_version), exists=True)
+    if not path.is_file():
         raise ValueError(f"invalid workflow configuration: {path.relative_to(root)}")
-    return {key: value for key, value in data.items() if key != "schema_version"}
+    try:
+        data = _read_yaml(path)
+        required = {"schema_version", "code_roots", "checks"}
+        optional = {"environment", "evidence_exclude"}
+        if (not isinstance(data, dict) or not required <= set(data)
+                or set(data) - required - optional
+                or type(data["schema_version"]) is not int or data["schema_version"] != 1):
+            raise ValueError(f"invalid workflow configuration: {path.relative_to(root)}")
+        return {key: value for key, value in data.items() if key != "schema_version"}
+    except ValueError as exc:
+        raise ValueError(f"invalid workflow configuration {path.relative_to(root)}: {exc}") from exc
 
 
 def _normalize_settings(root: Path, project: dict, name: str) -> dict:
@@ -162,6 +192,14 @@ def _normalize_settings(root: Path, project: dict, name: str) -> dict:
     return project
 
 
+def _settings(root: Path, project: dict, name: str, authority: str) -> dict:
+    """Keep nested semantic errors bound to their actual settings authority."""
+    try:
+        return _normalize_settings(root, project, name)
+    except ValueError as exc:
+        raise ValueError(f"invalid workflow settings {authority}: {exc}") from exc
+
+
 def configuration_paths(root: Path, selected: dict) -> list[str]:
     """List the local files that declare scope, checks and environment policy."""
     data = _index(root)
@@ -170,8 +208,8 @@ def configuration_paths(root: Path, selected: dict) -> list[str]:
     if not isinstance(binding, dict) or binding.get("root") != selected["root"]:
         raise ValueError("selected project differs from current configuration")
     paths = [INDEX_PATH]
-    if data["schema_version"] == 2:
-        companion = _workflow_path(selected["root"])
+    if data["schema_version"] >= 2:
+        companion = workflow_path(selected["root"], data["schema_version"])
         relative_path(root, companion, exists=True)
         paths.append(companion)
     return paths
@@ -182,29 +220,43 @@ def registry(root: Path = ROOT) -> dict:
     projects = {}
     seen = set()
     for name, binding in data["projects"].items():
-        required = {"root"} if data["schema_version"] == 2 else {"root", "queue", "code_roots", "checks"}
-        optional = set() if data["schema_version"] == 2 else {"environment", "evidence_exclude"}
+        required = {"root"} if data["schema_version"] >= 2 else {"root", "queue", "code_roots", "checks"}
+        optional = set() if data["schema_version"] >= 2 else {"environment", "evidence_exclude"}
         if (not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9_-]*", name)
                 or not isinstance(binding, dict) or not required <= set(binding)
                 or set(binding) - required - optional):
             raise ValueError(f"invalid project: {name}")
         relative_root(root, binding["root"], exists=True)
-        if data["schema_version"] == 2:
+        if data["schema_version"] >= 2:
             project = {"root": binding["root"],
-                       "queue": (Path(binding["root"]) / "openspec/queue.yaml").as_posix(),
-                       **_workflow(root, binding["root"])}
+                       "queue": (Path(binding["root"]) / ("openspec/dependency-map.yaml" if data["schema_version"] == 3 else "openspec/queue.yaml")).as_posix(),
+                       **_workflow(root, binding["root"], data["schema_version"])}
         else:
             project = dict(binding)
+        new_settings = workflow_path(project["root"])
+        old_settings = workflow_path(project["root"], 2)
+        alternate_settings = old_settings if data["schema_version"] == 3 else new_settings
+        alternate_map = (Path(project["root"]) / ("openspec/queue.yaml" if data["schema_version"] == 3 else "openspec/dependency-map.yaml")).as_posix()
+        if os.path.lexists(root / alternate_settings) or os.path.lexists(root / alternate_map):
+            raise ValueError(f"ambiguous workflow authority: explicit migration required: {name}")
+        if data["schema_version"] == 3:
+            project["workflow"] = new_settings
         project_root = relative_root(root, project["root"], exists=True)
         queue = relative_path(root, project["queue"], exists=True)
         if (not project_root.is_dir() or not queue.is_file() or project_root in seen
                 or queue.parent != project_root / "openspec"):
-            raise ValueError(f"conflicting/missing OpenSpec authority: {name}")
+            raise ValueError(f"conflicting/missing OpenSpec authority: {name}: {project['queue']}")
+        if data["schema_version"] == 3:
+            try:
+                parse_dependency_map(queue.read_text(), label=project["queue"])
+            except UnicodeError as exc:
+                raise ValueError(f"invalid dependency map: {project['queue']}") from exc
         seen.add(project_root)
         config_path(root, project)
-        project = _normalize_settings(root, project, name)
+        authority = workflow_path(project["root"], data["schema_version"]) if data["schema_version"] >= 2 else INDEX_PATH
+        project = _settings(root, project, name, authority)
         if data["schema_version"] == 1 and os.path.lexists(root / _workflow_path(project["root"])):
-            companion = _normalize_settings(root, _workflow(root, project["root"]), name)
+            companion = _settings(root, _workflow(root, project["root"]), name, old_settings)
             settings = {key: value for key, value in project.items() if key not in {"root", "queue"}}
             if companion != settings:
                 raise ValueError(f"conflicting legacy and local workflow configuration: {name}")

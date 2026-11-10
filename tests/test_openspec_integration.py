@@ -197,13 +197,16 @@ def test_installed_workflow_survives_upstream_update(tmp_path, cli_env, monkeypa
         source=ROOT,
     )
     assert result["status"] == "installed"
-    local_settings = target / "openspec/workflow.yaml"
+    local_settings = target / "agentic_harness/config/workflow.yaml"
     settings_bytes = local_settings.read_bytes()
     assert global_prompt.read_text() == "Developer-owned legacy prompt.\n"
     upstream_before = upstream_files(target)
     manifest = json.loads((target / "agentic_harness/install.json").read_text())
     managed_before = {name: (target / name).read_bytes() for name in manifest["managed"]}
     assert any("/skills/sdw-" in name for name in managed_before)
+    for name, record in manifest["links"].items():
+        assert (target / name).is_symlink()
+        assert os.readlink(target / name) == record["target"]
     assert_installed_handbook(target, target)
     assert {name: (target / name).read_bytes() for name in managed_before} == managed_before
     assert {path: path.read_bytes() for path in native_settings} == native_settings
@@ -238,7 +241,7 @@ def test_folder_installation_uses_native_directory_discovery_without_a_name(tmp_
     )
     assert result["status"] == "installed"
     assert not (target / "openspec").exists()
-    companion = project / "openspec/workflow.yaml"
+    companion = target / "agentic_harness/config/services/api/workflow.yaml"
     assert companion.is_file()
     assert_installed_handbook(target, source)
     launcher = target / "agentic_harness/tools/openspec.mjs"

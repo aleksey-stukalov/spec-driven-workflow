@@ -350,3 +350,50 @@ def test_root_specs_are_editable_metadata_without_expanding_domain_scope(impleme
     else:
         with pytest.raises(ValueError, match="exceeds registered project areas"):
             intake.validate_intake(record, root)
+
+
+def test_exact_approved_link_leaf_keeps_lexical_scope(tmp_path):
+    import skill_links
+    root = tmp_path / 'repo'; root.mkdir()
+    leaf = '.agents/skills/sdw-run'
+    canonical = root / skill_links.canonical_skill(leaf)
+    canonical.parent.mkdir(parents=True); canonical.write_text('canonical')
+    (root / leaf).parent.mkdir(parents=True)
+    (root / leaf).symlink_to(skill_links.expected_target(leaf))
+    record = planning()
+    record['scope'] = [leaf]
+    record['authorities'][0]['scope'] = [leaf]
+    admitted = intake.validate_intake(record, root)
+    assert admitted['scope'] == [leaf]
+    assert admitted['authorities'][0]['scope'] == [leaf]
+    record['scope'] = [leaf + '/SKILL.md']
+    record['authorities'][0]['scope'] = record['scope']
+    with pytest.raises(ValueError, match='aliased'):
+        intake.validate_intake(record, root)
+
+
+@pytest.mark.parametrize('relative,allowed', [
+    ('agentic_harness/config/component/workflow.yaml', True),
+    ('agentic_harness/config/neighbor/workflow.yaml', False),
+    ('agentic_harness/tools/coordination.py', False),
+    ('agentic_harness/skills/sdw-run/SKILL.md', False),
+])
+def test_schema_three_ticket_scope_grants_only_own_exact_settings(implementation, tmp_path, relative, allowed):
+    root, record = implementation
+    index_path = root / 'agentic_harness/projects.yaml'
+    index = yaml.safe_load(index_path.read_text())
+    original = index['projects']['example']
+    settings = {key: value for key, value in original.items() if key not in {'root', 'queue'}}
+    settings['code_roots'] = ['component']
+    path = root / 'agentic_harness/config/component/workflow.yaml'
+    path.parent.mkdir(parents=True); path.write_text(yaml.safe_dump({'schema_version': 1, **settings}))
+    (root / original['queue']).rename(root / 'component/openspec/dependency-map.yaml')
+    index_path.write_text(yaml.safe_dump({'schema_version': 3, 'projects': {'example': {'root': 'component'}}}))
+    record['scope'] = [relative]
+    record['ticket']['scope'] = [relative]
+    evidence(tmp_path, record)
+    if allowed:
+        assert intake.validate_intake(record, root)['scope'] == [relative]
+    else:
+        with pytest.raises(ValueError, match='exceeds registered project areas'):
+            intake.validate_intake(record, root)

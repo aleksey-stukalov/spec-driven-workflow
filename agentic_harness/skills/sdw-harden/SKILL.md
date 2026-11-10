@@ -1,9 +1,9 @@
 ---
-name: sdw-review
-description: "Review an implementation against its selected specification, tests and runtime risks using this workflow's independent review procedure."
+name: sdw-harden
+description: "Prepare or independently review the specification and design of a selected change using this workflow. Use for design hardening before implementation."
 ---
 
-Resolve the Git worktree root and read applicable repository instructions. Read the [policy map](../../../agentic_harness/policies/README.md), [execution procedure](../../../agentic_harness/procedures/execute.md) and [phase procedure](../../../agentic_harness/procedures/review-impl.md). Read the links explicitly.
+Resolve the Git worktree root and read applicable repository instructions. Read the [policy map](../../../agentic_harness/policies/README.md), [execution procedure](../../../agentic_harness/procedures/execute.md) and [phase procedure](../../../agentic_harness/procedures/harden-change.md). Read the links explicitly.
 
 Select the OpenSpec directory that owns the requested change and file scope. Run from the worktree root:
 
@@ -11,7 +11,7 @@ Select the OpenSpec directory that owns the requested change and file scope. Run
 uv run --locked --project agentic_harness python agentic_harness/tools/harness.py project --at SPEC_ROOT
 ```
 
-Replace SPEC_ROOT with the repository-relative directory containing the intended `openspec/`; use `.` for the repository root. Read its native `config.yaml` (or existing `config.yml`) and `workflow.yaml`. The latter holds source scope, checks and environment settings; all its paths are relative to the Git worktree root. Source and test folders can be elsewhere. Use the returned `id` in machine requests and keep that binding for the run.
+Replace SPEC_ROOT with the repository-relative directory containing the intended `openspec/`; use `.` for the repository root. Read its native `config.yaml` (or existing `config.yml`) and the harness settings path returned by this command. The harness settings document holds source scope, checks and environment settings; all its paths are relative to the Git worktree root. Source and test folders can be elsewhere. Use the returned `id` in machine requests and keep that binding for the run.
 
 Without `--at`, the command selects the nearest adopted OpenSpec root from the current directory, or the sole configured project when no local home is found. A nearer unadopted home or ambiguous selection stops the command. Resolve the requested scope before choosing another directory.
 

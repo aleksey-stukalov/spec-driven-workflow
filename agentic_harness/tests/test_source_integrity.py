@@ -1,4 +1,4 @@
-"""Retained source schema 3: executable modes, exact deletions and coverage."""
+"""Retained source schema 4: executable modes, exact deletions and coverage."""
 import hashlib
 import json
 from pathlib import Path
@@ -42,9 +42,9 @@ def capture(root, target, scope=None, deleted_scope=None):
 
 def test_modes_are_preserved_bound_and_live_mode_only_changes_reject(repository, tmp_path):
     target = tmp_path / 'bundle'; manifest = capture(repository, target)
-    assert manifest['schema_version'] == 3
+    assert manifest['schema_version'] == 4
     assert manifest['input_modes'] == {'normal.py': '100644', 'script.sh': '100755'}
-    assert manifest['input_revision'] == evidence.revision(manifest['input_files'], manifest['input_modes'], {})
+    assert manifest['input_revision'] == evidence.revision(manifest['input_files'], manifest['input_modes'], {}, 4)
     assert (target / 'source/script.sh').stat().st_mode & 0o777 == 0o555
     assert (target / 'source/normal.py').stat().st_mode & 0o777 == 0o444
     assert subprocess.run([str(target / 'source/script.sh')]).returncode == 0
@@ -92,7 +92,7 @@ def test_deleted_manifest_cannot_rebind_original_to_other_git_base(repository, t
     # A self-consistent tampered retained blob still must match the pinned base.
     retained = target / 'deleted-source/deleted.sh'; retained.chmod(0o755); retained.write_text('forged original')
     manifest['deleted_files']['deleted.sh']['sha256'] = hashlib.sha256(retained.read_bytes()).hexdigest()
-    manifest['input_revision'] = evidence.revision(manifest['input_files'], manifest['input_modes'], manifest['deleted_files'])
+    manifest['input_revision'] = evidence.revision(manifest['input_files'], manifest['input_modes'], manifest['deleted_files'], manifest['schema_version'])
     path = target / 'manifest.json'; path.chmod(0o644); path.write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match='pinned base'): evidence.verify(target)
 

@@ -8,7 +8,7 @@ behavior or claiming a capability exists.
 ## Scope and ownership
 
 Select the OpenSpec directory that owns the requested work. Its
-`openspec/workflow.yaml` lists adopted source areas in `code_roots`, while
+settings under `agentic_harness/config/` list adopted source areas in `code_roots`, while
 `openspec/config.yaml` (or the existing `config.yml`) holds native project
 context and rules. Paths in workflow settings are relative to the Git worktree
 root. One OpenSpec home may cover several source and test directories.
@@ -23,8 +23,10 @@ working-directory change must not rebind an admitted request. Legacy inline
 settings remain readable until the installer migrates them in a reviewed update.
 
 Each task has a bounded intake scope. Each writer owns exact files within that
-scope and the registered areas: adopted code roots and the selected project's
-`openspec/` metadata. Shared configuration changes must be named explicitly. Inspect
+scope and the registered areas: adopted code roots, the selected project's
+`openspec/` metadata and its exact harness settings file. Shared configuration
+changes must be named explicitly. The settings path does not grant ownership of
+its parent directory or another home's configuration. Inspect
 the full diff before acceptance to catch unassigned additions, deletions and
 renames. Preserve unrelated edits and other contributors' work.
 
@@ -35,7 +37,7 @@ ownership, dirty state, active assignments and retained dependencies.
 
 ## Project checks and environments
 
-`openspec/workflow.yaml` supplies required checks as argument arrays, not shell
+The selected harness settings file supplies required checks as argument arrays, not shell
 fragments. Checks run from the Git worktree root. Use the project's documented
 setup and declared lockfiles. Do not assume that every target uses Python, uv,
 npm, or a particular application test
@@ -57,7 +59,7 @@ development unless a target explicitly registers them.
 
 Keep credentials, private exports and operational state out of committed
 examples and retained review source. Use synthetic fixtures where practical.
-Declare project-specific evidence exclusions in `openspec/workflow.yaml`.
+Declare project-specific evidence exclusions in the selected harness settings.
 Do not assume that ordinary directories named `data`, `runtime`, `inputs` or
 `out` contain private material
 in every project. Inspect selected source before capture.

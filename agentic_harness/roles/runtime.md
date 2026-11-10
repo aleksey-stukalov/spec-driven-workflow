@@ -9,6 +9,8 @@ record or alter the host's default model.
 Work only on the named assignment. Writers own exact listed files. Read-only
 roles use retained source and separately assigned scratch material for permitted
 reproductions. Return complete findings and coverage, including unresolved work.
+Retained discovery-link records are inert target text; use their typed manifest
+and explicitly retained canonical skills to review them without alias traversal.
 Do not edit the implementation checkout as a reviewer, dispatch nested agents,
 truncate findings to claim success or treat a failed call as free.
 

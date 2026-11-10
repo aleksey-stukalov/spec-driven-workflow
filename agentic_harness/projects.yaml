@@ -1,5 +1,5 @@
-# Internal stable identities. Edit executable settings in openspec/workflow.yaml.
-schema_version: 2
+# Internal stable identities. Edit executable settings under agentic_harness/config/.
+schema_version: 3
 projects:
   workflow:
     root: .

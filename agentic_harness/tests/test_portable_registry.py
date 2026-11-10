@@ -322,3 +322,236 @@ def test_local_openspec_forwarding_preserves_commands_and_selected_cwd(registere
     assert seen[0][0] == ['node', str(launcher), 'show', 'change', '--json']
     assert seen[0][1]['cwd'] == root / 'packages/service'
     assert seen[0][1]['env']['OPENSPEC_TELEMETRY'] == '0'
+
+
+def harness_settings(root, data):
+    bindings = {}
+    for name, project in data['projects'].items():
+        settings = {key: value for key, value in project.items() if key not in {'root', 'queue'}}
+        write(root / projects.workflow_path(project['root']), yaml.safe_dump({'schema_version': 1, **settings}))
+        (root / project['queue']).rename(root / project['root'] / 'openspec/dependency-map.yaml')
+        bindings[name] = {'root': project['root']}
+    save_registry(root, {'schema_version': 3, 'projects': bindings})
+
+
+def test_schema_three_reports_exact_settings_authority_and_eligibility(registered):
+    root, data = registered
+    harness_settings(root, data)
+    selected = projects.resolve(None, root, at='packages/service')
+    path = 'agentic_harness/config/packages/service/workflow.yaml'
+    assert selected['workflow'] == path
+    assert selected['queue'] == 'packages/service/openspec/dependency-map.yaml'
+    assert projects.configuration_paths(root, selected) == ['agentic_harness/projects.yaml', path]
+    areas = projects.editable_areas(selected)
+    assert path in areas
+    assert not any(projects.scope_contains(area, 'agentic_harness/config/neighbor/workflow.yaml') for area in areas)
+    assert not any(projects.scope_contains(area, 'agentic_harness/skills/sdw-run/SKILL.md') for area in areas)
+
+
+@pytest.mark.parametrize('alternate', ['packages/service/openspec/workflow.yaml', 'packages/service/openspec/queue.yaml'])
+def test_schema_three_rejects_equivalent_legacy_authority(registered, alternate):
+    root, data = registered
+    harness_settings(root, data)
+    write(root / alternate, 'queue: []\n')
+    with pytest.raises(ValueError, match='ambiguous workflow authority'):
+        projects.resolve('service', root)
+
+
+@pytest.mark.parametrize('version', [1, 2])
+def test_old_schema_rejects_new_settings_even_when_equivalent(registered, version):
+    root, data = registered
+    if version == 2:
+        local_settings(root, data)
+    write(root / projects.workflow_path('packages/service'), 'schema_version: 1\n')
+    with pytest.raises(ValueError, match='ambiguous workflow authority'):
+        projects.resolve('service', root)
+
+
+def test_schema_three_settings_scope_cannot_be_absorbed_by_neighbor(registered):
+    root, data = registered
+    data['projects']['other'] = entry(root, 'other')
+    data['projects']['other']['code_roots'] = ['agentic_harness/config/packages/service']
+    harness_settings(root, data)
+    with pytest.raises(ValueError, match='overlapping project areas'):
+        projects.registry(root)
+
+
+@pytest.mark.parametrize('authority', ['workflow', 'queue'])
+def test_schema_three_missing_required_authority_fails_closed(registered, authority):
+    root, data = registered
+    harness_settings(root, data)
+    selected = projects.resolve('service', root)
+    (root / selected[authority]).unlink()
+    with pytest.raises(ValueError, match='missing registered path'):
+        projects.registry(root)
+
+
+@pytest.mark.parametrize('home', ['.', 'services/api space'])
+def test_schema_three_root_and_spaced_component_keep_settings_semantics(tmp_path, home):
+    root = tmp_path / 'repo'
+    binding = entry(root, home)
+    binding.update(environment={'lockfiles': ['lock file.json'], 'prepare': [['node', 'prepare script.js']]},
+                   evidence_exclude=['private records'])
+    data = {'schema_version': 1, 'projects': {'stable_id': binding}}
+    save_registry(root, data)
+    before = projects.resolve('stable_id', root)
+    harness_settings(root, data)
+    selected = projects.resolve(None, root, at=home)
+    assert selected['id'] == 'stable_id' and selected['root'] == home
+    for field in ('code_roots', 'checks', 'environment', 'evidence_exclude'):
+        assert selected[field] == before[field]
+    assert selected['workflow'] == projects.workflow_path(home)
+    assert projects.resolve('stable_id', root, cwd=root) == selected
+
+
+@pytest.mark.parametrize('home', ['.', 'services/api'])
+@pytest.mark.parametrize('document', [
+    'queue: [\n', '[]\n', 'queue: {}\n', 'queue: []\nextra: true\n',
+    'queue: [wrong]\n', 'queue: [{change: first}]\n',
+    'queue: [{change: first, depends_on: [], extra: true}]\n',
+    'queue: [{change: first, depends_on: []}, {change: first, depends_on: []}]\n',
+    'queue: [{change: first, depends_on: []}, {change: next, depends_on: [first, first]}]\n',
+    'queue: [{change: first, depends_on: [later]}, {change: later, depends_on: []}]\n',
+    'queue: [{change: first, depends_on: [first]}]\n',
+    'queue: [{change: first, depends_on: [next]}, {change: next, depends_on: [first]}]\n',
+    'queue: []\nqueue: []\n', 'queue: &entries []\n',
+    'queue: [{change: first, depends_on: [[invalid]]}]\n',
+])
+def test_schema_three_selection_validates_dependency_document(tmp_path, home, document):
+    root = tmp_path / 'repo'
+    data = {'schema_version': 1, 'projects': {'service': entry(root, home)}}
+    save_registry(root, data)
+    harness_settings(root, data)
+    authority = (root / home / 'openspec/dependency-map.yaml')
+    authority.write_text(document)
+    with pytest.raises(ValueError) as error:
+        projects.resolve(None, root, at=home)
+    assert authority.relative_to(root).as_posix() in str(error.value)
+
+
+@pytest.mark.parametrize('document', [
+    'queue: []\n',
+    'queue: [{change: absent-first, depends_on: []}, {change: absent-next, depends_on: [absent-first]}]\n',
+])
+def test_schema_three_selection_only_validates_document_not_readiness(registered, document):
+    root, data = registered
+    harness_settings(root, data)
+    authority = root / 'packages/service/openspec/dependency-map.yaml'
+    authority.write_text(document)
+    before = authority.read_bytes()
+    assert projects.resolve('service', root)['queue'] == authority.relative_to(root).as_posix()
+    assert authority.read_bytes() == before
+
+
+@pytest.mark.parametrize('version', [1, 2])
+def test_legacy_selection_does_not_gain_execution_readiness_checks(registered, version):
+    root, data = registered
+    if version == 2:
+        local_settings(root, data)
+    write(root / 'packages/service/openspec/queue.yaml', 'legacy-unparsed-document\n')
+    assert projects.resolve('service', root)['queue'] == 'packages/service/openspec/queue.yaml'
+
+
+@pytest.mark.parametrize('authority', ['workflow', 'queue'])
+@pytest.mark.parametrize('replacement', ['missing', 'symlink', 'directory'])
+def test_schema_three_authority_kind_errors_name_exact_selected_path(registered, tmp_path, authority, replacement):
+    root, data = registered
+    harness_settings(root, data)
+    selected = projects.resolve('service', root)
+    relative = selected[authority]
+    path = root / relative
+    payload = path.read_bytes()
+    path.unlink()
+    if replacement == 'symlink':
+        external = tmp_path / 'external-authority.yaml'
+        external.write_bytes(payload)
+        path.symlink_to(external)
+    elif replacement == 'directory':
+        path.mkdir()
+    with pytest.raises(ValueError) as error:
+        projects.resolve('service', root)
+    assert relative in str(error.value)
+
+
+@pytest.mark.parametrize('home', ['.', 'services/api'])
+@pytest.mark.parametrize('field,value,cause', [
+    ('checks', [], 'checks must be argv arrays'),
+    ('code_roots', [], 'invalid code roots'),
+    ('environment', {'prepare': 'not argv'}, 'environment prepare must be argv arrays'),
+    ('evidence_exclude', 'not paths', 'invalid evidence exclusions'),
+    ('environment', 'not mapping', 'invalid environment'),
+    ('checks', ['npm test'], 'checks must be argv arrays'),
+    ('environment', {'prepare': ['npm install']}, 'environment prepare must be argv arrays'),
+    ('code_roots', ['../outside'], 'unsafe path: ../outside'),
+    ('environment', {'lockfiles': ['../outside.lock']}, 'unsafe path: ../outside.lock'),
+    ('evidence_exclude', ['../outside'], 'unsafe path: ../outside'),
+])
+def test_current_settings_semantic_errors_retain_authority_and_cause(tmp_path, home, field, value, cause):
+    root = tmp_path / 'repo'
+    data = {'schema_version': 1, 'projects': {'service': entry(root, home)}}
+    save_registry(root, data)
+    harness_settings(root, data)
+    relative = projects.workflow_path(home)
+    path = root / relative
+    settings = yaml.safe_load(path.read_text())
+    settings[field] = value
+    path.write_text(yaml.safe_dump(settings))
+    with pytest.raises(ValueError) as error:
+        projects.resolve(None, root, at=home)
+    assert type(error.value) is ValueError
+    assert relative in str(error.value) and cause in str(error.value)
+    assert isinstance(error.value.__cause__, ValueError)
+    assert cause in str(error.value.__cause__)
+
+
+@pytest.mark.parametrize('home', ['.', 'services/api'])
+@pytest.mark.parametrize('payload,cause', [
+    (b'checks: [\n', 'invalid YAML configuration'),
+    (b'checks: []\nchecks: []\n', 'duplicate configuration key: checks'),
+    (b'\xff\xfe', 'invalid YAML configuration'),
+])
+def test_current_settings_decoding_errors_retain_authority_and_chain(tmp_path, home, payload, cause):
+    root = tmp_path / 'repo'
+    data = {'schema_version': 1, 'projects': {'service': entry(root, home)}}
+    save_registry(root, data)
+    harness_settings(root, data)
+    relative = projects.workflow_path(home)
+    (root / relative).write_bytes(payload)
+    with pytest.raises(ValueError) as error:
+        projects.resolve('service', root)
+    assert relative in str(error.value) and cause in str(error.value)
+    assert isinstance(error.value.__cause__, ValueError)
+
+
+@pytest.mark.parametrize('home', ['.', 'services/api'])
+@pytest.mark.parametrize('version', [1, 2])
+def test_legacy_semantic_errors_name_the_actual_settings_authority(tmp_path, home, version):
+    root = tmp_path / 'repo'
+    data = {'schema_version': 1, 'projects': {'service': entry(root, home)}}
+    if version == 1:
+        data['projects']['service']['checks'] = []
+        save_registry(root, data)
+        authority = projects.INDEX_PATH
+    else:
+        local_settings(root, data)
+        authority = projects.workflow_path(home, 2)
+        settings = yaml.safe_load((root / authority).read_text())
+        settings['checks'] = []
+        (root / authority).write_text(yaml.safe_dump(settings))
+    with pytest.raises(ValueError) as error:
+        projects.resolve('service', root)
+    assert authority in str(error.value) and 'checks must be argv arrays' in str(error.value)
+    assert projects.workflow_path(home, 3) not in str(error.value)
+
+
+@pytest.mark.parametrize('home', ['.', 'services/api'])
+def test_invalid_legacy_companion_is_not_attributed_to_inline_settings(tmp_path, home):
+    root = tmp_path / 'repo'
+    data = {'schema_version': 1, 'projects': {'service': entry(root, home)}}
+    save_registry(root, data)
+    authority = projects.workflow_path(home, 2)
+    write(root / authority, yaml.safe_dump({'schema_version': 1, 'code_roots': [home], 'checks': []}))
+    with pytest.raises(ValueError) as error:
+        projects.resolve('service', root)
+    assert authority in str(error.value) and 'checks must be argv arrays' in str(error.value)
+    assert projects.INDEX_PATH not in str(error.value)

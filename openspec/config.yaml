@@ -13,8 +13,11 @@ context: |
   remain execution checks rather than document-existence checks.
   The runtime preserves independent reviews, durable limits, original evidence,
   recovery, project-scoped work and explicit authority for external actions.
-  Executable settings belong in openspec/workflow.yaml beside native OpenSpec
-  configuration. agentic_harness/projects.yaml is an internal index of stable
+  Executable settings belong under agentic_harness/config/, while native OpenSpec
+  configuration stays beside the specifications. Each OpenSpec home keeps an
+  ordered dependency-map.yaml. SDW skill bodies live under agentic_harness/skills/
+  and selected agent discovery directories link to them with relative symlinks.
+  agentic_harness/projects.yaml is an internal index of stable
   identities and OpenSpec roots. Code scopes, the OpenSpec project root and
   repository-level installation files are distinct.
   The source is ignatov/gitbob PR 128 at commit

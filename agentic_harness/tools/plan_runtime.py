@@ -611,7 +611,7 @@ class Ledger:
                     manifest = evidence.verify(path.parent)
                 except (ValueError, KeyError, OSError, subprocess.SubprocessError) as exc:
                     raise PlanError(f'unsupported phase snapshot or retained source changed: {exc}') from exc
-                require(manifest.get('schema_version') == 3, 'new-plan reconciliation requires schema 3 retained evidence')
+                require(manifest.get('schema_version') in (3, 4), 'new-plan reconciliation requires schema 3 or 4 retained evidence')
                 require(all(manifest.get(k) == state[k] for k in ('project', 'change', 'run_id')), 'snapshot task identity mismatch')
                 require(manifest.get('input_revision') == phase_revisions[phase], 'snapshot phase revision mismatch')
             state['history'].append({'input_revision': state['input_revision'], 'phase_revisions': copy.deepcopy(state['phase_revisions']), 'reason': reason, 'snapshot_references': snapshot_references})

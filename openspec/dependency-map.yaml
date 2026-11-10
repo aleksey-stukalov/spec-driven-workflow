@@ -7,3 +7,5 @@ queue:
     depends_on: [26-11-10-002-openspec-local-configuration]
   - change: 26-11-10-004-rename-agentic-harness
     depends_on: [26-11-10-003-generated-workflow-handbook]
+  - change: 26-11-10-005-harness-owned-workflow
+    depends_on: [26-11-10-004-rename-agentic-harness]

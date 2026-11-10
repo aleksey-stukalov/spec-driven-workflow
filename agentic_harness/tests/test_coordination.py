@@ -710,3 +710,35 @@ def test_invalid_cli_project_resolution_returns_blocker(repository, tmp_path, ca
     assert response["ok"] is False and response["blocker"]
     expected = "multiple registered projects" if registration is None else "unknown OpenSpec project" if isinstance(registration, str) else "queue"
     assert expected in response["blocker"]
+
+
+def test_link_assignment_retains_leaf_and_conflicts_with_legacy_child(repository, tmp_path):
+    import skill_links
+    store, claim, workspace, path = owned(repository, tmp_path)
+    leaf = '.agents/skills/sdw-run'
+    child = leaf + '/SKILL.md'
+    old = path / child; old.parent.mkdir(parents=True); old.write_text('copied body')
+    assignment = reserve(store, claim, path, 'old-child', [child])
+    assert assignment['files'] == [str(old)]
+    old.unlink(); old.parent.rmdir()
+    canonical = path / skill_links.canonical_skill(leaf)
+    canonical.parent.mkdir(parents=True); canonical.write_text('canonical body')
+    (path / leaf).symlink_to(skill_links.expected_target(leaf))
+    with pytest.raises(c.CoordinationError, match='overlapping writer'):
+        reserve(store, claim, path, 'new-leaf', [leaf])
+    with pytest.raises(c.CoordinationError, match='aliased'):
+        reserve(store, claim, path, 'linked-child', [child])
+    store.settle('old-child', 'synthetic original result', 'synthetic complete')
+    store.release_assignments('run', 'synthetic complete')
+    assignment = reserve(store, claim, path, 'leaf-after-release', [leaf])
+    assert assignment['files'] == [str(path / leaf)]
+    assert str(canonical) not in assignment['files']
+
+
+@pytest.mark.parametrize('document', ['queue: [\n', 'queue: &entries []\n', 'queue: [{change: first, depends_on: [[invalid]]}]\n'])
+def test_shared_dependency_parser_reports_coordination_authority(repository, document):
+    _, project, _ = repository
+    project.queue_path.write_text(document)
+    with pytest.raises(c.CoordinationError) as error:
+        c.validate_queue(project)
+    assert str(project.queue_path) in str(error.value)

@@ -11,7 +11,7 @@ Select the OpenSpec directory that owns the requested change and file scope. Run
 uv run --locked --project agentic_harness python agentic_harness/tools/harness.py project --at SPEC_ROOT
 ```
 
-Replace SPEC_ROOT with the repository-relative directory containing the intended `openspec/`; use `.` for the repository root. Read its native `config.yaml` (or existing `config.yml`) and `workflow.yaml`. The latter holds source scope, checks and environment settings; all its paths are relative to the Git worktree root. Source and test folders can be elsewhere. Use the returned `id` in machine requests and keep that binding for the run.
+Replace SPEC_ROOT with the repository-relative directory containing the intended `openspec/`; use `.` for the repository root. Read its native `config.yaml` (or existing `config.yml`) and the harness settings path returned by this command. The harness settings document holds source scope, checks and environment settings; all its paths are relative to the Git worktree root. Source and test folders can be elsewhere. Use the returned `id` in machine requests and keep that binding for the run.
 
 Without `--at`, the command selects the nearest adopted OpenSpec root from the current directory, or the sole configured project when no local home is found. A nearer unadopted home or ambiguous selection stops the command. Resolve the requested scope before choosing another directory.
 

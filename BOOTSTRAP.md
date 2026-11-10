@@ -29,7 +29,9 @@ requirements, task completion, issue references or review evidence.
 Keep native OpenSpec settings in `openspec/config.yaml` or `config.yml`: schema,
 project context, artifact rules and supported operation guidance. Keep this
 workflow's executable checks, code roots, preparation, lockfiles and evidence
-exclusions in the adjacent `openspec/workflow.yaml`. Paths inside `workflow.yaml`
+exclusions in `agentic_harness/config/workflow.yaml` for the root home, or
+`agentic_harness/config/<home>/workflow.yaml` for a component. These are
+project-owned settings, preserved during package updates. Paths inside `workflow.yaml`
 are relative to the Git worktree root. Preserve existing file contents and schema selection.
 The built-in `spec-driven` schema provides the required artifacts; custom schemas
 must keep compatible proposal, design, tasks and capability-delta paths for the
@@ -40,7 +42,7 @@ execution runtime. Do not equate preservation with arbitrary schema support.
 Use the [documented installer](README.md#install-into-a-project). Select the home
 with `--spec-root` when it is below the repository root. No project name is
 required. Pass the real scope and checks for a new configuration, or inspect and
-reuse the settings already in `openspec/workflow.yaml`. Use argv arrays for
+reuse the selected home's existing harness settings. Use argv arrays for
 checks, not shell fragments. Select only the agent integrations used by the
 target project.
 
@@ -97,13 +99,23 @@ managed files under the old directory. Migration stops when these need deliberat
 reconciliation; update the appropriate local settings before retrying the dry-run.
 Keep evidence exclusions for any files retained under the old path.
 
-For a legacy registration format, the plan also migrates inline settings from
-the installed `projects.yaml` to `openspec/workflow.yaml` beside each selected
-home's native configuration. The index keeps stable identifiers and roots only.
-Preserve those identifiers: run history and retained evidence use them. A
-pre-existing companion with different settings must be reconciled explicitly.
-For current installations, edit the local companion and refresh the installation
-through `update`; do not maintain a second copy of the settings in the index.
+The plan moves legacy `openspec/workflow.yaml` files or inline settings from
+`projects.yaml` into the deterministic harness configuration paths. Each
+`openspec/queue.yaml` becomes `openspec/dependency-map.yaml`; its ordered YAML
+content and dependency semantics remain unchanged. The schema-3 index keeps
+stable identifiers and roots only. Preserve those identifiers: run history and
+retained evidence use them. Conflicting old/new settings or maps require
+reconciliation; equivalent duplicates may be explicitly coalesced during update.
+Missing indexed authority is an error, not permission to invent replacement
+settings. Edit the selected harness settings and refresh through `update`.
+
+Canonical SDW skills are regular files in `agentic_harness/skills/`. The installer
+creates relative links for individual `sdw-*` directories under the selected
+agents' discovery directories. It preserves other skills and upstream files.
+Old copied directories can become links only after ownership and their complete
+contents are verified. Extra content, modified copies, unsafe links or unsupported
+link creation stop installation. Review the reported recovery paths if concurrent
+edits prevent complete rollback; never remove that content automatically.
 
 Active runs retain their recorded source, catalog and evidence versions.
 Complete or checkpoint them in their original worktree before adopting a changed

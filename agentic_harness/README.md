@@ -22,21 +22,29 @@ review accounting.
 - [Implementation review](procedures/review-impl.md)
 - [Worker role contract](roles/runtime.md)
 
-Each adopted OpenSpec home keeps project settings beside its specifications:
+Each adopted OpenSpec home has native configuration and separate harness settings:
 
 - `openspec/config.yaml` (or an existing `config.yml`) selects the native schema
   and supplies project context, artifact rules and supported operation guidance.
-- `openspec/workflow.yaml` supplies this workflow's source scopes, executable
+- `agentic_harness/config/workflow.yaml` supplies the root home's source scopes, executable
   checks, environment preparation, lockfiles and evidence exclusions. Paths are
-  relative to the Git worktree root; checks also run from that root.
+  relative to the Git worktree root; checks also run from that root. For a home
+  at `services/api`, use `agentic_harness/config/services/api/workflow.yaml`.
+- `openspec/dependency-map.yaml` stays beside the changes and preserves the
+  ordered `queue` list and its prerequisite rules.
 
 `projects.yaml` is the internal index of stable project identifiers and OpenSpec
 directories. Runs record those identifiers. The installer maintains the index;
 choose a directory when starting work.
-Legacy installations can still read their inline settings until a reviewed
-update moves them beside OpenSpec. The installer records its version and managed
-file hashes in `install.json`. Application settings and specifications stay
-project-owned.
+Legacy inline settings and OpenSpec-local settings remain readable under their
+original index schemas until a reviewed update migrates them. The installer
+records its version, managed file hashes and exact discovery link targets in
+`install.json`. Application settings and specifications stay project-owned.
+
+The maintained `sdw-*` skills are under `skills/`. Selected agent discovery
+directories contain relative links to those directories. Each skill's Markdown
+references work from both its canonical and discovery locations. OpenSpec owns
+its own generated skills; they remain ordinary upstream-managed files.
 
 Run the entrypoint from the consumer repository's Git worktree root:
 

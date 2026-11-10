@@ -32,6 +32,10 @@ def distribution(tmp_path, monkeypatch):
     for folder in workflow.PAYLOAD_DIRECTORIES:
         (harness / folder).mkdir(parents=True)
         (harness / folder / "example.md").write_text(f"Shared {folder}.\n")
+    for name in ("sdw-run", "sdw-harden", "sdw-review"):
+        skill = harness / "skills" / name / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text("Own workflow skill.\n")
     for filename in workflow.PAYLOAD_FILES:
         (harness / filename).write_text("source metadata\n")
     (harness / ".gitignore").write_text("node_modules/\n.venv/\n__pycache__/\n*.py[cod]\n")
@@ -42,7 +46,7 @@ def outputs(registry, agents):
     result = {}
     for agent in agents:
         folder = ".agents" if agent == "codex" else ".claude"
-        result[folder + "/skills/sdw-run/SKILL.md"] = "Own workflow skill.\\n"
+        result[(".codex" if agent == "codex" else ".claude") + ("/agents/sdw-run.toml" if agent == "codex" else "/agents/sdw-run.md")] = "Own workflow role.\\n"
     return result
 
 def entrypoint(registry):
@@ -176,7 +180,7 @@ def test_existing_product_config_specs_and_queue_are_user_owned(distribution, ta
     adopt(source, target)
     assert (target / "openspec/config.yaml").read_bytes() == config
     assert (target / "openspec/specs/product/spec.md").read_bytes() == spec
-    assert (target / "openspec/queue.yaml").read_bytes() == queue
+    assert (target / "openspec/dependency-map.yaml").read_bytes() == queue
     manifest = json.loads((target / workflow.MANIFEST).read_text())
     assert "openspec/config.yaml" not in manifest["managed"]
     assert workflow.REGISTRY not in manifest["managed"]
@@ -212,7 +216,7 @@ def test_update_preserves_local_config_and_surrounding_instructions(distribution
     (source / "agentic_harness/policies/example.md").write_text("Updated package rule.\n")
     agents = target / "AGENTS.md"
     agents.write_text("User addition before.\n\n" + agents.read_text() + "\nUser addition after.\n")
-    config = target / "openspec/workflow.yaml"
+    config = target / "agentic_harness/config/workflow.yaml"
     data = yaml.safe_load(config.read_text())
     data["checks"] = [["npm", "run", "verify"]]
     config.write_text("# Local configuration comment\n" + yaml.safe_dump(data))
@@ -316,7 +320,7 @@ def test_child_environment_does_not_reuse_user_codex_home(tmp_path, monkeypatch)
     assert not (tmp_path / "real-user-config").exists()
 
 
-@pytest.mark.parametrize("group,path", [("managed", "README.md"), ("managed", "agentic_harness/projects.yaml"), ("managed", "openspec/workflow.yaml"), ("upstream", ".codex/config.toml"), ("blocks", "CONTRIBUTING.md")])
+@pytest.mark.parametrize("group,path", [("managed", "README.md"), ("managed", "agentic_harness/projects.yaml"), ("managed", "agentic_harness/config/workflow.yaml"), ("upstream", ".codex/config.toml"), ("blocks", "CONTRIBUTING.md")])
 def test_manifest_cannot_claim_unrelated_files(distribution, target, group, path):
     source, _ = distribution
     adopt(source, target)
@@ -351,7 +355,7 @@ def test_doctor_detects_stale_local_binding(distribution, target):
     (target / "a").mkdir()
     (target / "b").mkdir()
     adopt(source, target, scopes=["a"])
-    config = target / "openspec/workflow.yaml"
+    config = target / "agentic_harness/config/workflow.yaml"
     data = yaml.safe_load(config.read_text())
     data["code_roots"] = ["b"]
     config.write_text(yaml.safe_dump(data))
@@ -368,10 +372,10 @@ def test_atomic_write_failure_keeps_original(distribution, target, monkeypatch):
     before = files(target)
     original_replace = workflow.os.replace
 
-    def fail(source_path, destination):
-        if Path(destination).name == "example.md" and Path(destination).parent.name == "policies":
+    def fail(source_path, destination, **kwargs):
+        if Path(destination).name == "example.md":
             raise OSError("replacement failed")
-        return original_replace(source_path, destination)
+        return original_replace(source_path, destination, **kwargs)
 
     monkeypatch.setattr(workflow.os, "replace", fail)
     with pytest.raises(OSError, match="replacement failed"):
@@ -404,7 +408,7 @@ def test_active_claim_blocks_update_only_for_its_worktree(distribution, target, 
 def test_optional_environment_fields_and_underscore_id(distribution, target):
     source, _ = distribution
     adopt(source, target, project="my_app")
-    config = target / "openspec/workflow.yaml"
+    config = target / "agentic_harness/config/workflow.yaml"
     data = yaml.safe_load(config.read_text())
     data["environment"] = {}
     config.write_text(yaml.safe_dump(data))
@@ -417,7 +421,7 @@ def test_concurrent_local_config_edit_during_preparation_is_preserved(distributi
     adopt(source, target)
     package = source / "agentic_harness/package-lock.json"
     package.write_text("updated lock\n")
-    config = target / "openspec/workflow.yaml"
+    config = target / "agentic_harness/config/workflow.yaml"
     original_prepare = workflow.prepare_dependencies
     prior_payload = (target / "agentic_harness/package-lock.json").read_bytes()
 
@@ -493,7 +497,7 @@ def test_doctor_rejects_source_scope_covering_another_domains_metadata(distribut
     projects = workflow.load_registry(target)["projects"]
     assert projects["a"]["code_roots"] == ["src/a"]
     assert projects["b"]["code_roots"] == ["src/b"]
-    config = target / "homes/b/openspec/workflow.yaml"
+    config = target / "agentic_harness/config/homes/b/workflow.yaml"
     data = yaml.safe_load(config.read_text())
     data["code_roots"] = ["homes/a/openspec"]
     config.write_text(yaml.safe_dump(data))
@@ -523,13 +527,42 @@ def test_early_generator_edit_cannot_become_trusted_baseline(distribution, targe
     assert calls == existing_calls
 
 
-def legacy_configuration(target):
-    """Seed the previous on-disk format while keeping an installed payload."""
+def legacy_configuration(target, version=1):
+    """Construct an actual previous authority layout, including copied skills."""
     expanded = workflow.load_registry(target)
     for project in expanded["projects"].values():
-        (target / workflow.join(project["root"], "openspec/workflow.yaml")).unlink()
-    (target / workflow.REGISTRY).write_text(yaml.safe_dump(expanded, sort_keys=False))
+        root = project["root"]
+        current = target / workflow.workflow_name(root)
+        previous = target / workflow.workflow_name(root, 2)
+        if version == 2:
+            previous.write_bytes(current.read_bytes())
+        current.unlink()
+        new_map = target / workflow.join(root, "openspec/dependency-map.yaml")
+        old_map = target / workflow.join(root, "openspec/queue.yaml")
+        new_map.rename(old_map)
+        project["queue"] = old_map.relative_to(target).as_posix()
+    document = expanded if version == 1 else {
+        "schema_version": 2, "projects": {name: {"root": project["root"]}
+        for name, project in expanded["projects"].items()}}
+    (target / workflow.REGISTRY).write_text(yaml.safe_dump(document, sort_keys=False))
+    path = target / workflow.MANIFEST
+    manifest = json.loads(path.read_text())
+    for name in manifest.pop("links", {}):
+        leaf = target / name
+        content = (leaf / "SKILL.md").read_bytes()
+        leaf.unlink()
+        leaf.mkdir()
+        (leaf / "SKILL.md").write_bytes(content)
+        manifest["managed"][name + "/SKILL.md"] = workflow.digest(content)
+    manifest["schema_version"] = 1
+    manifest["registry_sha256"] = workflow.digest(workflow.encoded(expanded))
+    path.write_bytes(workflow.encoded(manifest))
     return expanded
+
+
+def current_configuration(legacy):
+    return {**legacy, "projects": {name: {**project, "queue": workflow.join(project["root"], "openspec/dependency-map.yaml")}
+            for name, project in legacy["projects"].items()}}
 
 
 @pytest.mark.parametrize("environment", [None, {}, {"lockfiles": []}, {"prepare": []}])
@@ -565,11 +598,11 @@ def test_install_without_name_uses_selected_openspec_root(distribution, target, 
     result = workflow.installation(target, source=source, spec_root=spec_root,
                                    checks=[["npm", "test"]], agents=["codex"])
     index = yaml.safe_load((target / workflow.REGISTRY).read_text())
-    assert index["schema_version"] == 2
+    assert index["schema_version"] == 3
     assert len(result["projects"]) == 1
     identity = result["projects"][0]
     assert index["projects"] == {identity: {"root": spec_root}}
-    settings_path = workflow.join(spec_root, "openspec/workflow.yaml")
+    settings_path = workflow.workflow_name(spec_root)
     settings = yaml.safe_load((target / settings_path).read_text())
     assert settings["schema_version"] == 1
     assert settings["code_roots"] == [spec_root]
@@ -644,17 +677,17 @@ def test_legacy_update_migration_is_reviewable_and_preserves_settings(distributi
     native_before = native.read_bytes()
     before = files(target)
     preview = workflow.installation(target, source=source, update=True, dry_run=True)
-    settings_path = "services/api/openspec/workflow.yaml"
+    settings_path = workflow.workflow_name("services/api")
     assert workflow.REGISTRY in preview["changed"]
     assert settings_path in preview["changed"]
-    assert "+schema_version: 2" in preview["diffs"][workflow.REGISTRY]
+    assert "+schema_version: 3" in preview["diffs"][workflow.REGISTRY]
     assert "evidence_exclude:" in preview["diffs"][settings_path]
     assert files(target) == before
     result = workflow.installation(target, source=source, update=True)
     assert result["projects"] == ["original_api"]
-    assert workflow.load_registry(target) == legacy
+    assert workflow.load_registry(target) == current_configuration(legacy)
     assert yaml.safe_load((target / workflow.REGISTRY).read_text()) == {
-        "schema_version": 2, "projects": {"original_api": {"root": "services/api"}},
+        "schema_version": 3, "projects": {"original_api": {"root": "services/api"}},
     }
     assert native.read_bytes() == native_before
     assert workflow.doctor(target)["status"] == "valid"
@@ -669,8 +702,8 @@ def test_install_migrates_existing_legacy_identity_without_name(distribution, ta
     legacy = legacy_configuration(target)
     result = workflow.installation(target, source=source)
     assert result["projects"] == ["existing_name"]
-    assert yaml.safe_load((target / workflow.REGISTRY).read_text())["schema_version"] == 2
-    assert workflow.load_registry(target) == legacy
+    assert yaml.safe_load((target / workflow.REGISTRY).read_text())["schema_version"] == 3
+    assert workflow.load_registry(target) == current_configuration(legacy)
     assert not (target / ".claude").exists()
 
 
@@ -678,12 +711,13 @@ def test_install_migrates_existing_legacy_identity_without_name(distribution, ta
 def test_legacy_companion_must_agree_and_preserves_original_bytes(distribution, target, conflicting):
     source, _ = distribution
     adopt(source, target)
-    settings_file = target / "openspec/workflow.yaml"
+    settings_file = target / "agentic_harness/config/workflow.yaml"
     settings = yaml.safe_load(settings_file.read_text())
     legacy_configuration(target)
     if conflicting:
         settings["checks"] = [["different-test-command"]]
     content = ("# Human-maintained settings\n" + yaml.safe_dump(settings, sort_keys=False)).encode()
+    settings_file = target / "openspec/workflow.yaml"
     settings_file.write_bytes(content)
     before = files(target)
     if conflicting:
@@ -692,7 +726,8 @@ def test_legacy_companion_must_agree_and_preserves_original_bytes(distribution, 
         assert files(target) == before
     else:
         workflow.installation(target, source=source, update=True)
-        assert settings_file.read_bytes() == content
+        assert (target / workflow.workflow_name(".")).read_bytes() == content
+        assert not settings_file.exists()
         assert workflow.doctor(target)["status"] == "valid"
 
 
@@ -717,7 +752,8 @@ def test_unindexed_companion_supplies_settings_without_check_flags(distribution,
     assert selected["code_roots"] == settings["code_roots"]
     assert selected["environment"] == settings["environment"]
     assert selected["evidence_exclude"] == settings["evidence_exclude"]
-    assert companion.read_bytes() == content
+    assert (target / workflow.workflow_name("backend")).read_bytes() == content
+    assert not companion.exists()
     assert workflow.doctor(target)["status"] == "valid"
 
 
@@ -733,7 +769,7 @@ def test_first_install_still_requires_concrete_checks(distribution, target):
 def test_invalid_indexed_companion_is_not_recreated_or_overwritten(distribution, target, tmp_path, invalid):
     source, calls = distribution
     adopt(source, target)
-    companion = target / "openspec/workflow.yaml"
+    companion = target / "agentic_harness/config/workflow.yaml"
     if invalid == "malformed":
         companion.write_text("[unterminated\n")
     elif invalid in {"unknown-field", "missing-checks"}:
@@ -769,16 +805,17 @@ def test_companion_is_observed_before_its_first_read(distribution, target, monke
         adopt(source, target)
     else:
         (target / "openspec").mkdir()
-        (target / "openspec/workflow.yaml").write_text("schema_version: 1\ncode_roots: ['.']\nchecks: [[npm, test]]\n")
-    companion = target / "openspec/workflow.yaml"
+        (target / "agentic_harness/config").mkdir(parents=True)
+        (target / "agentic_harness/config/workflow.yaml").write_text("schema_version: 1\ncode_roots: ['.']\nchecks: [[npm, test]]\n")
+    companion = target / "agentic_harness/config/workflow.yaml"
     original_read = workflow.read_yaml
     previous_calls = list(calls)
     before = files(target)
     edited = False
 
-    def concurrent_read(path):
+    def concurrent_read(path, **kwargs):
         nonlocal edited
-        result = original_read(path)
+        result = original_read(path, **kwargs)
         if path == companion and not edited:
             replacement = dict(result, checks=[["concurrently-changed-command"]])
             companion.write_text(yaml.safe_dump(replacement))
@@ -789,7 +826,7 @@ def test_companion_is_observed_before_its_first_read(distribution, target, monke
     with pytest.raises(workflow.InstallError, match="target changed while preparing"):
         workflow.installation(target, source=source, update=indexed)
     assert edited
-    before["openspec/workflow.yaml"] = companion.read_bytes()
+    before["agentic_harness/config/workflow.yaml"] = companion.read_bytes()
     assert yaml.safe_load(companion.read_text())["checks"] == [["concurrently-changed-command"]]
     assert files(target) == before
     assert calls == previous_calls
@@ -803,13 +840,13 @@ def test_failed_migration_rolls_back_index_and_new_companion(distribution, targe
     before = files(target)
     original_write = workflow.atomic_write
 
-    def fail_manifest(path, content):
+    def fail_manifest(path, content, **kwargs):
         if path == target / workflow.MANIFEST:
             raise OSError("manifest write failed")
-        return original_write(path, content)
+        return original_write(path, content, **kwargs)
 
     monkeypatch.setattr(workflow, "atomic_write", fail_manifest)
     with pytest.raises(OSError, match="manifest write failed"):
         workflow.installation(target, source=source, update=True)
     assert files(target) == before
-    assert not (target / "openspec/workflow.yaml").exists()
+    assert not (target / "agentic_harness/config/workflow.yaml").exists()
