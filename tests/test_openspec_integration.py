@@ -12,7 +12,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HARNESS = ROOT / "_agentic_harness"
+HARNESS = ROOT / "agentic_harness"
 LAUNCHER = HARNESS / "tools/openspec.mjs"
 UPSTREAM = HARNESS / "node_modules/@fission-ai/openspec/bin/openspec.js"
 WORKFLOWS = {
@@ -29,7 +29,7 @@ WORKFLOWS = {
 def cli_env(tmp_path):
     """Use child-only user directories; leave the developer's settings alone."""
     if not shutil.which("node") or not UPSTREAM.is_file():
-        pytest.skip("Run npm ci --ignore-scripts --prefix _agentic_harness for OpenSpec integration tests")
+        pytest.skip("Run npm ci --ignore-scripts --prefix agentic_harness for OpenSpec integration tests")
     environment = os.environ.copy()
     for name, folder in (
         ("HOME", "home"),
@@ -91,8 +91,8 @@ def write(project, relative, content):
 
 
 def assert_installed_handbook(target, working_directory):
-    script = target / "_agentic_harness/tools/build.py"
-    page = target / "_agentic_harness/index.html"
+    script = target / "agentic_harness/tools/build.py"
+    page = target / "agentic_harness/index.html"
     expected = (HARNESS / "index.html").read_bytes()
     assert page.read_bytes() == expected
     for flags in (["--check"], [], ["--check"]):
@@ -201,7 +201,7 @@ def test_installed_workflow_survives_upstream_update(tmp_path, cli_env, monkeypa
     settings_bytes = local_settings.read_bytes()
     assert global_prompt.read_text() == "Developer-owned legacy prompt.\n"
     upstream_before = upstream_files(target)
-    manifest = json.loads((target / "_agentic_harness/install.json").read_text())
+    manifest = json.loads((target / "agentic_harness/install.json").read_text())
     managed_before = {name: (target / name).read_bytes() for name in manifest["managed"]}
     assert any("/skills/sdw-" in name for name in managed_before)
     assert_installed_handbook(target, target)
@@ -212,7 +212,7 @@ def test_installed_workflow_survives_upstream_update(tmp_path, cli_env, monkeypa
     pristine.mkdir()
     run_cli(pristine, cli_env, "init", "--tools", "codex,claude", "--profile", "core", launcher=UPSTREAM)
     assert upstream_before == upstream_files(pristine)
-    run_cli(target, cli_env, "update", "--force", launcher=target / "_agentic_harness/tools/openspec.mjs")
+    run_cli(target, cli_env, "update", "--force", launcher=target / "agentic_harness/tools/openspec.mjs")
     assert upstream_files(target) == upstream_before
     assert {name: (target / name).read_bytes() for name in managed_before} == managed_before
     assert config.read_bytes() == config_bytes
@@ -241,7 +241,7 @@ def test_folder_installation_uses_native_directory_discovery_without_a_name(tmp_
     companion = project / "openspec/workflow.yaml"
     assert companion.is_file()
     assert_installed_handbook(target, source)
-    launcher = target / "_agentic_harness/tools/openspec.mjs"
+    launcher = target / "agentic_harness/tools/openspec.mjs"
     context = json.loads(run_cli(source, cli_env, "context", "--json", launcher=launcher).stdout)
     assert Path(context["root"]["path"]).resolve() == project.resolve()
     run_cli(source, cli_env, "new", "change", "describe-api-behavior", launcher=launcher)

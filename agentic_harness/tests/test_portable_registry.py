@@ -93,13 +93,13 @@ def test_local_configuration_preserves_legacy_runtime_identity_and_authority(reg
     original['evidence_exclude'] = ['private']
     save_registry(root, data)
     before = projects.resolve('service', root)
-    assert projects.configuration_paths(root, before) == ['_agentic_harness/projects.yaml']
+    assert projects.configuration_paths(root, before) == ['agentic_harness/projects.yaml']
 
     local_settings(root, data)
     selected = projects.resolve(None, root, at='packages/service')
     assert selected == before
     assert projects.configuration_paths(root, selected) == [
-        '_agentic_harness/projects.yaml', 'packages/service/openspec/workflow.yaml',
+        'agentic_harness/projects.yaml', 'packages/service/openspec/workflow.yaml',
     ]
     assert projects.resolve('service', root, cwd=root / 'elsewhere') == before
 
@@ -109,6 +109,29 @@ def test_optional_defaults_normalize_identically_in_both_formats(registered):
     before = projects.registry(root)
     local_settings(root, data)
     assert projects.registry(root) == before
+
+
+@pytest.mark.parametrize('version', [1, 2])
+@pytest.mark.parametrize('keep_current', [False, True], ids=['legacy-only', 'dual-index'])
+def test_current_runtime_requires_one_canonical_directory_authority(registered, version, keep_current):
+    root, data = registered
+    if version == 2:
+        local_settings(root, data)
+    current = root / 'agentic_harness/projects.yaml'
+    legacy = write(root / '_agentic_harness/projects.yaml', current.read_text())
+    if not keep_current:
+        current.unlink()
+    original = legacy.read_bytes()
+    with pytest.raises(ValueError, match='ambiguous workflow authority|legacy workflow directory'):
+        projects.resolve('service', root)
+    assert legacy.read_bytes() == original
+
+
+def test_legacy_cache_directory_without_authority_does_not_block_current_runtime(registered):
+    root, _ = registered
+    write(root / '_agentic_harness/local-notes.md', 'Retained local notes.\n')
+    write(root / '_agentic_harness/node_modules/.cache/retained', 'cache\n')
+    assert projects.resolve('service', root)['id'] == 'service'
 
 
 def test_local_settings_are_the_only_executable_authority(registered):
@@ -284,9 +307,9 @@ def test_read_only_native_references_preserve_local_home(registered):
 
 def test_local_openspec_forwarding_preserves_commands_and_selected_cwd(registered, monkeypatch):
     root, _ = registered
-    write(root / '_agentic_harness/node_modules/.bin/openspec', 'placeholder\n')
-    write(root / '_agentic_harness/package.json', json.dumps({'dependencies': {'@fission-ai/openspec': '1.14.3'}}))
-    launcher = write(root / '_agentic_harness/tools/openspec.mjs', 'placeholder\n')
+    write(root / 'agentic_harness/node_modules/.bin/openspec', 'placeholder\n')
+    write(root / 'agentic_harness/package.json', json.dumps({'dependencies': {'@fission-ai/openspec': '1.14.3'}}))
+    launcher = write(root / 'agentic_harness/tools/openspec.mjs', 'placeholder\n')
     seen = []
 
     def invoke(command, **kwargs):

@@ -23,7 +23,7 @@ def test_generic_source_directory_names_are_public(repository, tmp_path, relativ
 
 
 def configure(repository, exclusions):
-    path = repository / '_agentic_harness/projects.yaml'
+    path = repository / 'agentic_harness/projects.yaml'
     config = yaml.safe_load(path.read_text())
     if config['schema_version'] == 2:
         path = repository / config['projects']['synthetic']['root'] / 'openspec/workflow.yaml'
@@ -35,7 +35,7 @@ def configure(repository, exclusions):
 
 
 def use_companion(repository):
-    index = repository / '_agentic_harness/projects.yaml'
+    index = repository / 'agentic_harness/projects.yaml'
     data = yaml.safe_load(index.read_text())
     entries = {}
     for name, selected in data['projects'].items():
@@ -101,6 +101,122 @@ def test_deleted_original_preserves_base_privacy_when_exclusion_is_retired(repos
                              run_id='run', base=base, policy='plans-v1')
 
 
+def test_deleted_original_keeps_legacy_base_exclusions_after_directory_migration(repository, tmp_path, privacy_layout):
+    private = repository / 'private-data.json'
+    private.write_text('{"synthetic-private": true}\n')
+    configure(repository, ['private-data.json'])
+    current = repository / 'agentic_harness/projects.yaml'
+    legacy = repository / '_agentic_harness/projects.yaml'
+    legacy.parent.mkdir()
+    current.rename(legacy)
+    git(repository, 'add', '.')
+    git(repository, 'commit', '-m', 'Legacy package directory privacy authority')
+    base = git(repository, 'rev-parse', 'HEAD')
+
+    # The current layout and settings cannot erase the old commit's exclusions.
+    legacy.rename(current)
+    configure(repository, [])
+    private.unlink()
+    assert evidence._base_exclusions(repository / '.git', base) == ['private-data.json']
+    target = tmp_path / 'forbidden-legacy-original'
+    with pytest.raises(ValueError, match='not review material'):
+        evidence.materialize(repository, target, [], deleted_scope=['private-data.json'],
+                             project='synthetic', change='26-11-09-901-integration-contract',
+                             run_id='run', base=base, policy='plans-v1')
+    assert not target.exists()
+
+
+@pytest.mark.parametrize('keep_current', [False, True], ids=['legacy-only', 'dual-index'])
+def test_live_legacy_authority_cannot_silently_drop_privacy_rules(repository, tmp_path, privacy_layout, keep_current):
+    current = repository / 'agentic_harness/projects.yaml'
+    legacy = repository / '_agentic_harness/projects.yaml'
+    legacy.parent.mkdir()
+    legacy.write_bytes(current.read_bytes())
+    if not keep_current:
+        current.unlink()
+    target = tmp_path / 'rejected-live-layout'
+    with pytest.raises(ValueError, match='ambiguous workflow authority|legacy workflow directory'):
+        capture(repository, target, ['source.py'])
+    assert not target.exists()
+
+
+def test_ambiguous_historical_indices_fail_even_after_live_layout_repair(repository, privacy_layout):
+    current = repository / 'agentic_harness/projects.yaml'
+    legacy = repository / '_agentic_harness/projects.yaml'
+    legacy.parent.mkdir()
+    legacy.write_bytes(current.read_bytes())
+    git(repository, 'add', '.')
+    git(repository, 'commit', '-m', 'Ambiguous synthetic historical authority')
+    base = git(repository, 'rev-parse', 'HEAD')
+    legacy.unlink()
+    with pytest.raises(ValueError, match='ambiguous pinned-base privacy policy'):
+        evidence._base_exclusions(repository / '.git', base)
+
+
+@pytest.mark.parametrize('corruption', ['invalid-yaml', 'duplicate-field', 'unsupported-version',
+                                        'empty-projects', 'missing-fields', 'symlink'])
+def test_malformed_legacy_base_index_cannot_fall_back_to_current_authority(repository, privacy_layout, corruption):
+    current = repository / 'agentic_harness/projects.yaml'
+    original = current.read_bytes()
+    legacy = repository / '_agentic_harness/projects.yaml'
+    legacy.parent.mkdir()
+    current.rename(legacy)
+    data = yaml.safe_load(original)
+    if corruption == 'invalid-yaml':
+        legacy.write_text('projects: [\n')
+    elif corruption == 'duplicate-field':
+        legacy.write_bytes(original + b'projects: {}\n')
+    elif corruption == 'symlink':
+        legacy.unlink()
+        legacy.symlink_to('../project/openspec/config.yaml')
+    else:
+        if corruption == 'unsupported-version':
+            data['schema_version'] = 7
+        elif corruption == 'empty-projects':
+            data['projects'] = {}
+        elif corruption == 'missing-fields':
+            data['projects']['synthetic'] = {}
+        legacy.write_text(yaml.safe_dump(data))
+    git(repository, 'add', '.')
+    git(repository, 'commit', '-m', 'Malformed synthetic legacy authority')
+    base = git(repository, 'rev-parse', 'HEAD')
+    legacy.unlink()
+    current.write_bytes(original)
+    with pytest.raises(ValueError):
+        evidence._base_exclusions(repository / '.git', base)
+
+
+def test_retained_old_paths_remain_original_and_rename_requires_new_evidence(repository, tmp_path):
+    old_name = '_agentic_harness/policies/local.md'
+    new_name = 'agentic_harness/policies/local.md'
+    old = repository / old_name
+    old.parent.mkdir(parents=True)
+    old.write_text('The original policy bytes.\n')
+    git(repository, 'add', '.')
+    git(repository, 'commit', '-m', 'Old public package path')
+    base = git(repository, 'rev-parse', 'HEAD')
+    target = tmp_path / 'original-bundle'
+    manifest = capture(repository, target, [old_name])
+    original = {p.relative_to(target): p.read_bytes() for p in target.rglob('*') if p.is_file()}
+
+    new = repository / new_name
+    new.parent.mkdir(parents=True)
+    old.rename(new)
+    assert evidence.verify(target) == manifest
+    with pytest.raises(ValueError, match='missing registered path'):
+        evidence.verify(target, repository)
+    assert {p.relative_to(target): p.read_bytes() for p in target.rglob('*') if p.is_file()} == original
+    assert evidence.changed_scope(repository, base) == {
+        'input_scope': [new_name], 'deleted_scope': [old_name],
+    }
+    replacement = evidence.materialize(repository, tmp_path / 'renamed-bundle', [new_name],
+                                       deleted_scope=[old_name], project='synthetic',
+                                       change=manifest['change'], run_id='run', base=base, policy='plans-v1')
+    assert old_name in replacement['deleted_files']
+    assert new_name in replacement['input_files']
+    assert replacement['input_revision'] != manifest['input_revision']
+
+
 def test_dependency_reads_respect_other_domains_private_paths(repository, tmp_path):
     other = repository / 'other/openspec'
     other.mkdir(parents=True)
@@ -108,7 +224,7 @@ def test_dependency_reads_respect_other_domains_private_paths(repository, tmp_pa
     (other / 'queue.yaml').write_text('queue: []\n')
     private = repository / 'other/private.json'
     private.write_text('{}\n')
-    config_path = repository / '_agentic_harness/projects.yaml'
+    config_path = repository / 'agentic_harness/projects.yaml'
     config = yaml.safe_load(config_path.read_text())
     config['projects']['other'] = {
         'root': 'other', 'queue': 'other/openspec/queue.yaml', 'code_roots': ['other'],
@@ -154,7 +270,7 @@ def test_pinned_companion_is_read_from_base_when_live_files_are_removed(reposito
     git(repository, 'commit', '-m', 'Commit companion privacy policy')
     base = git(repository, 'rev-parse', 'HEAD')
     (repository / 'project/openspec/workflow.yaml').unlink()
-    (repository / '_agentic_harness/projects.yaml').unlink()
+    (repository / 'agentic_harness/projects.yaml').unlink()
     assert evidence._base_exclusions(repository / '.git', base) == ['private-data.json']
 
 
@@ -166,7 +282,7 @@ def test_pinned_companion_is_read_from_base_when_live_files_are_removed(reposito
 def test_invalid_pinned_companion_fails_closed_even_after_live_repair(repository, corruption):
     use_companion(repository)
     path = repository / 'project/openspec/workflow.yaml'
-    index = repository / '_agentic_harness/projects.yaml'
+    index = repository / 'agentic_harness/projects.yaml'
     original, original_index = path.read_bytes(), index.read_bytes()
     config = yaml.safe_load(original)
     if corruption == 'missing':

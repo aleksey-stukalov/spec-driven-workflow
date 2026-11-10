@@ -90,7 +90,7 @@ def test_live_branch_and_recorded_base_are_revalidated_before_output(repository,
 
 def test_registry_environment_declaration_cannot_replace_pinned_claim_policy(repository, tmp_path):
     request, ledger, store, _ = writer_setup(repository, tmp_path)
-    path = Path(request['worktree']) / '_agentic_harness/projects.yaml'
+    path = Path(request['worktree']) / 'agentic_harness/projects.yaml'
     config = yaml.safe_load(path.read_text())
     config['projects']['synthetic']['environment'] = {'lockfiles': [], 'prepare': []}
     path.write_text(yaml.safe_dump(config))
@@ -100,7 +100,7 @@ def test_registry_environment_declaration_cannot_replace_pinned_claim_policy(rep
 
 
 def test_planning_home_is_separate_from_application_code_roots(repository, tmp_path):
-    path = repository / '_agentic_harness/projects.yaml'
+    path = repository / 'agentic_harness/projects.yaml'
     config = yaml.safe_load(path.read_text())
     config['projects']['synthetic']['code_roots'] = ['application']
     path.write_text(yaml.safe_dump(config))

@@ -67,10 +67,10 @@ def test_entrypoint_settings_link_supports_spaces_in_the_project_path():
 
 
 def test_invalid_catalog_rejected_before_rendering(tmp_path, monkeypatch):
-    shutil.copytree(adapters.SOURCE / "_agentic_harness/tools", tmp_path / "_agentic_harness/tools",
+    shutil.copytree(adapters.SOURCE / "agentic_harness/tools", tmp_path / "agentic_harness/tools",
                     ignore=shutil.ignore_patterns("__pycache__"))
-    path = tmp_path / "_agentic_harness/plans.yaml"
-    data = yaml.safe_load((adapters.SOURCE / "_agentic_harness/plans.yaml").read_text())
+    path = tmp_path / "agentic_harness/plans.yaml"
+    data = yaml.safe_load((adapters.SOURCE / "agentic_harness/plans.yaml").read_text())
     data["plans"]["balanced"]["steps"]["lead_plan"]["routes"]["codex"]["effort"] = "invalid-effort"
     path.write_text(yaml.safe_dump(data))
     monkeypatch.setattr(adapters, "SOURCE", tmp_path)

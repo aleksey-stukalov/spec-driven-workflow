@@ -64,15 +64,15 @@ def entrypoint(registry: dict) -> str:
         "to modify every listed file. Read the applicable existing repository instructions.\n\n"
         + "\n".join(rows)
         + "\n\nBefore a scoped change, read "
-        "[`_agentic_harness/policies/README.md`](_agentic_harness/policies/README.md) "
+        "[`agentic_harness/policies/README.md`](agentic_harness/policies/README.md) "
         "and select the intended OpenSpec directory. Read its native `config.yaml` "
         "(or existing `config.yml`) and workflow settings above. "
         "Resolve these links from the Git worktree root. These are required reads, "
         "not automatic imports. Use `sdw-run`, `sdw-harden`, or `sdw-review` for the "
         "applicable phase. Resolve cross-scope work explicitly before making changes.\n\n"
         "OpenSpec's generated skills remain unchanged. Route its commands through "
-        "`uv run --locked --project _agentic_harness python "
-        "_agentic_harness/tools/harness.py openspec --at SPEC_ROOT -- COMMAND` "
+        "`uv run --locked --project agentic_harness python "
+        "agentic_harness/tools/harness.py openspec --at SPEC_ROOT -- COMMAND` "
         "from the worktree root. `SPEC_ROOT` is the repository-relative directory "
         "containing the intended `openspec/`, such as `.` or `services/api`. "
         "The wrapper reports the selected root and pins the CLI. "
@@ -86,9 +86,9 @@ def _link(path: str, target: str) -> str:
 
 
 def _skill(path: str, name: str, description: str, procedure: str) -> str:
-    reading = _link(path, "_agentic_harness/policies/README.md")
-    execution = _link(path, "_agentic_harness/procedures/execute.md")
-    phase = _link(path, "_agentic_harness/procedures/" + procedure)
+    reading = _link(path, "agentic_harness/policies/README.md")
+    execution = _link(path, "agentic_harness/procedures/execute.md")
+    phase = _link(path, "agentic_harness/procedures/" + procedure)
     return (
         f"---\nname: {name}\ndescription: {json.dumps(description)}\n---\n\n"
         "Resolve the Git worktree root and read applicable repository instructions. "
@@ -96,8 +96,8 @@ def _skill(path: str, name: str, description: str, procedure: str) -> str:
         f"and [phase procedure]({phase}). Read the links explicitly.\n\n"
         "Select the OpenSpec directory that owns the requested change and file scope. "
         "Run from the worktree root:\n\n"
-        "```sh\nuv run --locked --project _agentic_harness python "
-        "_agentic_harness/tools/harness.py project --at SPEC_ROOT\n```\n\n"
+        "```sh\nuv run --locked --project agentic_harness python "
+        "agentic_harness/tools/harness.py project --at SPEC_ROOT\n```\n\n"
         "Replace SPEC_ROOT with the repository-relative directory containing the "
         "intended `openspec/`; use `.` for the repository root. Read its native "
         "`config.yaml` (or existing `config.yml`) and `workflow.yaml`. The latter "
@@ -109,8 +109,8 @@ def _skill(path: str, name: str, description: str, procedure: str) -> str:
         "is found. A nearer unadopted home or ambiguous selection stops the command. "
         "Resolve the requested scope before choosing another directory.\n\n"
         "Use the pinned CLI in that selected project through:\n\n"
-        "```sh\nuv run --locked --project _agentic_harness python "
-        "_agentic_harness/tools/harness.py openspec --at SPEC_ROOT -- list --json\n```\n\n"
+        "```sh\nuv run --locked --project agentic_harness python "
+        "agentic_harness/tools/harness.py openspec --at SPEC_ROOT -- list --json\n```\n\n"
         "Read OpenSpec's returned context and instructions. When following an unchanged "
         "upstream skill, route each `openspec` command through this wrapper and preserve "
         "its arguments. Do not edit or shadow the generated `openspec-*` skills. "
@@ -140,9 +140,9 @@ def outputs(registry: dict, agents: list[str]) -> dict[str, str]:
     # already have another installed runtime in sys.modules or on sys.path.
     loader = (
         "import json,sys; from pathlib import Path; "
-        "sys.path.insert(0,str(Path(sys.argv[1])/'_agentic_harness/tools')); "
+        "sys.path.insert(0,str(Path(sys.argv[1])/'agentic_harness/tools')); "
         "from plan_runtime import load_catalog; "
-        "print(json.dumps(load_catalog(Path(sys.argv[1])/'_agentic_harness/plans.yaml')))"
+        "print(json.dumps(load_catalog(Path(sys.argv[1])/'agentic_harness/plans.yaml')))"
     )
     checked = subprocess.run([sys.executable, "-c", loader, str(SOURCE)],
                              capture_output=True, text=True)
@@ -158,8 +158,8 @@ def outputs(registry: dict, agents: list[str]) -> dict[str, str]:
         name = "sdw-" + step["id"].replace("_", "-")
         instructions = (
             "Read applicable AGENTS.md from the assigned Git worktree. Read "
-            "_agentic_harness/policies/README.md, _agentic_harness/policies/plans.md, "
-            "_agentic_harness/procedures/execute.md and _agentic_harness/roles/runtime.md. "
+            "agentic_harness/policies/README.md, agentic_harness/policies/plans.md, "
+            "agentic_harness/procedures/execute.md and agentic_harness/roles/runtime.md. "
             "Resolve these paths from the worktree root.\n"
             f"Role: {step['label']}. Boundary: {step['boundary']}\n"
             "Use the registered project, explicit task authority and exact owned paths. "

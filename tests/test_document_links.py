@@ -10,9 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_authored_markdown_links_resolve():
     paths = list(ROOT.glob("*.md"))
-    for folder in ("docs", "_agentic_harness/policies", "_agentic_harness/procedures", "_agentic_harness/roles", "openspec"):
+    for folder in ("docs", "agentic_harness/policies", "agentic_harness/procedures", "agentic_harness/roles", "openspec"):
         paths.extend((ROOT / folder).rglob("*.md"))
-    paths.append(ROOT / "_agentic_harness/README.md")
+    paths.append(ROOT / "agentic_harness/README.md")
     parser = MarkdownIt()
     broken = []
     for path in paths:

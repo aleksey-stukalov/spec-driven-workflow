@@ -21,11 +21,11 @@ CHANGE = "26-11-09-901-workflow-contract"
 
 def planning():
     return {"schema_version": 1, "mode": "planning", "project": "example", "change": CHANGE,
-            "scope": ["_agentic_harness/docs/queue.md"],
+            "scope": ["agentic_harness/docs/queue.md"],
             "request": {"problem": "Preserve ownership during restart", "outcome": "A restart preserves state",
                         "acceptance": ["Interrupted writers are reconciled"]},
             "authorities": [{"source": "user:message-42", "project": "example", "change": CHANGE,
-                             "scope": ["_agentic_harness"], "actions": ["planning"]}], "ticket": None}
+                             "scope": ["agentic_harness"], "actions": ["planning"]}], "ticket": None}
 
 
 def evidence(tmp_path, record, *, observation_changes=None):
@@ -48,7 +48,7 @@ def implementation(tmp_path):
     root.mkdir()
     record = planning()
     record["mode"] = "implementation"
-    record["scope"] = ["_agentic_harness/tools/coordination.py"]
+    record["scope"] = ["agentic_harness/tools/coordination.py"]
     record["authorities"][0]["actions"] = ["implementation"]
     proposal = f"component/openspec/changes/{CHANGE}/proposal.md"
     capability = f"component/openspec/changes/{CHANGE}/specs/harness-workspaces/spec.md"
@@ -61,11 +61,11 @@ def implementation(tmp_path):
                         "spec_links": [proposal, capability], "dependencies": [], "relationships": ["pull-request:128"]}
     (root / "component/openspec/config.yaml").write_text("schema: spec-driven\n")
     (root / "component/openspec/queue.yaml").write_text("queue: []\n")
-    (root / "_agentic_harness").mkdir()
-    (root / "_agentic_harness/projects.yaml").write_text(yaml.safe_dump({
+    (root / "agentic_harness").mkdir()
+    (root / "agentic_harness/projects.yaml").write_text(yaml.safe_dump({
         "schema_version": 1, "projects": {"example": {
             "root": "component", "queue": "component/openspec/queue.yaml",
-            "code_roots": ["component", "_agentic_harness"], "checks": [["true"]]}}}))
+            "code_roots": ["component", "agentic_harness"], "checks": [["true"]]}}}))
     evidence(tmp_path, record)
     return root, record
 
@@ -226,7 +226,7 @@ def test_original_user_message_url_is_valid_authority_reference():
 
 def test_original_ticket_scope_order_survives_normalized_revalidation(implementation, tmp_path):
     root, record = implementation
-    record["scope"] = ["_agentic_harness/tools/z.py", "_agentic_harness/tools/a.py"]
+    record["scope"] = ["agentic_harness/tools/z.py", "agentic_harness/tools/a.py"]
     record["ticket"]["scope"] = list(record["scope"])
     record["ticket"]["spec_links"].reverse()
     evidence(tmp_path, record)
@@ -237,7 +237,7 @@ def test_original_ticket_scope_order_survives_normalized_revalidation(implementa
 
 def root_project(root, record):
     (root / "component/openspec").rename(root / "openspec")
-    registration = root / "_agentic_harness/projects.yaml"
+    registration = root / "agentic_harness/projects.yaml"
     data = yaml.safe_load(registration.read_text())
     data["projects"]["example"].update(root=".", queue="openspec/queue.yaml", code_roots=["."])
     registration.write_text(yaml.safe_dump(data))
@@ -334,7 +334,7 @@ def test_root_scope_does_not_relax_file_link_validation(implementation, tmp_path
 def test_root_specs_are_editable_metadata_without_expanding_domain_scope(implementation, tmp_path, extra_path):
     root, record = implementation
     root_project(root, record)
-    registration = root / "_agentic_harness/projects.yaml"
+    registration = root / "agentic_harness/projects.yaml"
     data = yaml.safe_load(registration.read_text())
     data["projects"]["example"]["code_roots"] = ["apps/api"]
     registration.write_text(yaml.safe_dump(data))

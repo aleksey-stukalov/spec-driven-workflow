@@ -83,8 +83,22 @@ apply the update within the task's authority. Preserve the target's configuratio
 and OpenSpec data. Never modify `openspec-*` or `opsx-*` output to embed this
 workflow; use its own `sdw-*` files and supported OpenSpec configuration.
 
-For a legacy installation, the plan migrates inline settings from
-`_agentic_harness/projects.yaml` to `openspec/workflow.yaml` beside each selected
+For an installation under `_agentic_harness/`, the plan migrates verified
+package-owned files and the internal index to `agentic_harness/`. It refreshes
+owned routing while preserving local settings and upstream integrations.
+Unowned files, old dependency caches and virtual environments stay at their
+original paths. The old ignore file is retained when needed to protect those
+leftovers. Inspect the reported retained paths; do not remove them as part of
+the package migration. Conflicting destinations or ambiguous installations
+must be reconciled before the update.
+
+Check project-owned commands, scope paths and dependency locks for references to
+managed files under the old directory. Migration stops when these need deliberate
+reconciliation; update the appropriate local settings before retrying the dry-run.
+Keep evidence exclusions for any files retained under the old path.
+
+For a legacy registration format, the plan also migrates inline settings from
+the installed `projects.yaml` to `openspec/workflow.yaml` beside each selected
 home's native configuration. The index keeps stable identifiers and roots only.
 Preserve those identifiers: run history and retained evidence use them. A
 pre-existing companion with different settings must be reconciled explicitly.

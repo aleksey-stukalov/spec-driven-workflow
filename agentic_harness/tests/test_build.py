@@ -33,7 +33,7 @@ def build():
 @pytest.fixture
 def harness(tmp_path: Path) -> Path:
     """Use only the shipped harness, with no files from the source project."""
-    destination = tmp_path / "consumer" / "_agentic_harness"
+    destination = tmp_path / "consumer" / "agentic_harness"
     shutil.copytree(
         HARNESS,
         destination,
@@ -136,7 +136,7 @@ def test_checked_in_page_is_current_and_only_declared_output(build) -> None:
 
 
 def test_same_package_at_different_checkout_paths_has_identical_output(build, harness: Path, tmp_path: Path) -> None:
-    second = tmp_path / "another" / "deeply nested checkout" / "_agentic_harness"
+    second = tmp_path / "another" / "deeply nested checkout" / "agentic_harness"
     shutil.copytree(harness, second)
     first_html = generated_html(build, harness)
     assert first_html == generated_html(build, second)

@@ -16,7 +16,7 @@ a recorded extension before launch.
 Inspect exact routes and limits with the installed harness interpreter:
 
 ```sh
-python _agentic_harness/tools/harness.py plans routes --plan balanced
+python agentic_harness/tools/harness.py plans routes --plan balanced
 ```
 
 The catalog preserves the source workflow's model pairs and budgets as explicit

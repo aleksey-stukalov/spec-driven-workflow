@@ -10,15 +10,15 @@ means the interpreter prepared for the installed harness; it is not necessarily
 the target application's interpreter. `SPEC_ROOT` is the repository-relative
 directory containing the intended `openspec/`; use `.` for the root. JSON
 filenames identify the requests you prepared. Later `harness.py` references abbreviate
-`python _agentic_harness/tools/harness.py`; use the full invocation when running them.
+`python agentic_harness/tools/harness.py`; use the full invocation when running them.
 
 ## Resolve inputs and ownership
 
 1. Select the intended OpenSpec directory:
 
    ```sh
-   python _agentic_harness/tools/harness.py project --at SPEC_ROOT
-   python _agentic_harness/tools/harness.py openspec --at SPEC_ROOT -- list --json
+   python agentic_harness/tools/harness.py project --at SPEC_ROOT
+   python agentic_harness/tools/harness.py openspec --at SPEC_ROOT -- list --json
    ```
 
    Read the returned specification home, source scope, queue, checks and

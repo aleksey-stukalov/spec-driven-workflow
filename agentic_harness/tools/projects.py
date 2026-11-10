@@ -10,6 +10,8 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+INDEX_PATH = "agentic_harness/projects.yaml"
+LEGACY_INDEX_PATH = "_agentic_harness/projects.yaml"
 
 
 class UniqueLoader(yaml.SafeLoader):
@@ -113,7 +115,11 @@ def _paths(root, value, label, *, roots=False):
 
 
 def _index(root: Path) -> dict:
-    path = relative_path(root, "_agentic_harness/projects.yaml", exists=True)
+    if os.path.lexists(root / LEGACY_INDEX_PATH):
+        if os.path.lexists(root / INDEX_PATH):
+            raise ValueError("ambiguous workflow authority: both package directories contain projects.yaml")
+        raise ValueError("legacy workflow directory requires an installer update before using this runtime")
+    path = relative_path(root, INDEX_PATH, exists=True)
     data = _read_yaml(path)
     if (not isinstance(data, dict) or set(data) != {"schema_version", "projects"}
             or type(data["schema_version"]) is not int or data["schema_version"] not in (1, 2)):
@@ -163,7 +169,7 @@ def configuration_paths(root: Path, selected: dict) -> list[str]:
     binding = data["projects"].get(name)
     if not isinstance(binding, dict) or binding.get("root") != selected["root"]:
         raise ValueError("selected project differs from current configuration")
-    paths = ["_agentic_harness/projects.yaml"]
+    paths = [INDEX_PATH]
     if data["schema_version"] == 2:
         companion = _workflow_path(selected["root"])
         relative_path(root, companion, exists=True)
@@ -271,13 +277,13 @@ def openspec(project: str | None, arguments: list[str], root: Path = ROOT, *, at
     if any(argument.split("=", 1)[0] in {"--store", "--store-path"} for argument in arguments):
         raise ValueError("external OpenSpec store selectors cannot override the selected local home")
     selected = resolve(project, root, at=at)
-    binary = root / "_agentic_harness/node_modules/.bin/openspec"
+    binary = root / "agentic_harness/node_modules/.bin/openspec"
     if not binary.is_file():
-        raise ValueError("install the pinned toolchain: npm --prefix _agentic_harness ci --ignore-scripts")
-    package = json.loads((root / "_agentic_harness/package.json").read_text())
+        raise ValueError("install the pinned toolchain: npm --prefix agentic_harness ci --ignore-scripts")
+    package = json.loads((root / "agentic_harness/package.json").read_text())
     version = (package.get("dependencies", {}) | package.get("devDependencies", {}))["@fission-ai/openspec"]
     print(json.dumps({"project": selected["id"], "openspec_root": str((root / selected["root"]).resolve()), "toolchain": "@fission-ai/openspec@" + version}), file=__import__('sys').stderr)
-    launcher = root / "_agentic_harness/tools/openspec.mjs"
+    launcher = root / "agentic_harness/tools/openspec.mjs"
     if not launcher.is_file():
         raise ValueError("pinned OpenSpec launcher is missing")
     return subprocess.run(["node", str(launcher), *arguments], cwd=root / selected["root"], env={**os.environ, "OPENSPEC_TELEMETRY": "0"}).returncode

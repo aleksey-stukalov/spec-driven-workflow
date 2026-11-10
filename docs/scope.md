@@ -87,7 +87,7 @@ inspect the plan and apply the update. The installer preserves local settings
 and refreshes the generated routing and integrity records. Missing or invalid
 settings block execution.
 
-`_agentic_harness/projects.yaml` is an internal index of stable identifiers to
+`agentic_harness/projects.yaml` is an internal index of stable identifiers to
 OpenSpec homes. Older installations stored all settings there. Update migrates
 those settings into the companion files without renaming identifiers, which are
 still used by claims, run history and evidence. A conflicting pre-existing
@@ -99,8 +99,8 @@ or rename the internal identifiers.
 From the Git worktree root, inspect the selection with:
 
 ```sh
-uv run --locked --project _agentic_harness python \
-  _agentic_harness/tools/harness.py project
+uv run --locked --project agentic_harness python \
+  agentic_harness/tools/harness.py project
 ```
 
 The wrapper finds the nearest OpenSpec home above the current directory and
@@ -114,16 +114,16 @@ For a component with `backend/openspec/`, select its home explicitly when invoki
 from the worktree root or working on related tests elsewhere:
 
 ```sh
-uv run --locked --project _agentic_harness python \
-  _agentic_harness/tools/harness.py project --at backend
+uv run --locked --project agentic_harness python \
+  agentic_harness/tools/harness.py project --at backend
 
-uv run --locked --project _agentic_harness python \
-  _agentic_harness/tools/harness.py openspec --at backend -- list --json
+uv run --locked --project agentic_harness python \
+  agentic_harness/tools/harness.py openspec --at backend -- list --json
 ```
 
 `--at` accepts an existing directory relative to the Git worktree root. It
 selects the OpenSpec home; it does not change `code_roots`, task scope or writer
-permissions. `uv --project _agentic_harness` selects the Python environment for
+permissions. `uv --project agentic_harness` selects the Python environment for
 the tools and is unrelated to workflow identity. Old positional project names
 remain available for compatibility.
 
@@ -182,4 +182,4 @@ reclassify historical runs or replace product specifications.
 
 The [extraction inventory](extraction.md) explains what comes from the source
 workflow. The executable rules start at the
-[policy map](../_agentic_harness/policies/README.md).
+[policy map](../agentic_harness/policies/README.md).

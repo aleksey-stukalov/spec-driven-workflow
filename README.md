@@ -4,7 +4,7 @@ A reusable development process built on OpenSpec. It connects a bounded task,
 specification, independent review, implementation, verification and handoff.
 Apply it to a whole Git repository or to selected parts of an existing one.
 
-For a visual guide, open the generated [HTML handbook](_agentic_harness/index.html)
+For a visual guide, open the generated [HTML handbook](agentic_harness/index.html)
 in a browser. It includes the development flow and current role/profile tables.
 The page works offline and is built from the maintained package sources.
 
@@ -22,7 +22,7 @@ First, install the workflow's own dependencies in its checkout:
 
 ```sh
 uv sync --locked
-npm --prefix _agentic_harness ci --ignore-scripts
+npm --prefix agentic_harness ci --ignore-scripts
 ```
 
 Choose one of the following installation options.
@@ -113,7 +113,7 @@ Keep settings beside the specifications:
 | `openspec/config.yaml` or `config.yml` | OpenSpec's schema, project context, document rules and operation guidance. Existing content is preserved. |
 | `openspec/workflow.yaml` | This workflow's source paths, executable checks, environment preparation and evidence exclusions. |
 | `openspec/queue.yaml` | The ordered changes and their dependencies. |
-| `_agentic_harness/` | The installed process and execution tools, shared across OpenSpec homes in the repository. |
+| `agentic_harness/` | The installed process and execution tools, shared across OpenSpec homes in the repository. |
 
 For the selected-folder example, the installer creates settings like these:
 
@@ -140,7 +140,7 @@ context and rules. Edit the appropriate local file, then run `update --dry-run`
 and apply the update to refresh routing and integrity records. Do not edit the
 package's policy files to configure an application.
 
-The installer maintains `_agentic_harness/projects.yaml` as an internal index of
+The installer maintains `agentic_harness/projects.yaml` as an internal index of
 OpenSpec homes. Its stable identifiers connect run history and evidence. Normal
 setup and selection use paths; old `--project NAME` arguments remain supported
 for compatibility. Do not rename those identifiers or maintain a second copy of
@@ -159,7 +159,20 @@ An update uses the workflow checkout from which the command is run. Review its
 version and changes first. Local edits to package-managed files are conflicts;
 project configuration and product specifications remain locally owned.
 
-For older installations, the update moves inline settings from `projects.yaml`
+For installations under `_agentic_harness/`, the update migrates verified
+package-owned files and the internal index to `agentic_harness/` and refreshes
+the owned instructions. Use the installer for this move so ownership, conflicts
+and rollback are checked. Afterward, use the new path in your own shell commands
+or scripts. Unowned files, old dependency caches and virtual environments remain
+at their original paths; the legacy ignore file is retained when needed to keep
+those leftovers ignored. The update reports retained content instead of deleting it.
+
+If local commands, scope paths or dependency locks still refer to managed files
+under the old directory, migration stops for reconciliation. Resolve those
+references in the project's workflow settings and retry the dry-run. Preserve
+old-path evidence exclusions that protect files remaining in the legacy directory.
+
+For older registration formats, the update moves inline settings from `projects.yaml`
 to each home's `openspec/workflow.yaml` and retains the existing identifiers.
 The dry-run shows the migration. A pre-existing companion file with different
 settings is a conflict to resolve before applying the update. Active runs retain
@@ -169,30 +182,30 @@ their original worktree, runtime and evidence; they are not migrated in place.
 
 The installer adds `sdw-run`, `sdw-harden` and `sdw-review` skills for selected
 agents, role definitions under the `sdw-` namespace, a scoped instruction block,
-and the `_agentic_harness/` runtime. It does not replace global model settings.
+and the `agentic_harness/` runtime. It does not replace global model settings.
 
 From the target repository's Git worktree root, inspect the selected OpenSpec
 home and list its changes:
 
 ```sh
-uv run --locked --project _agentic_harness python \
-  _agentic_harness/tools/harness.py project
+uv run --locked --project agentic_harness python \
+  agentic_harness/tools/harness.py project
 
-uv run --locked --project _agentic_harness python \
-  _agentic_harness/tools/harness.py openspec -- list --json
+uv run --locked --project agentic_harness python \
+  agentic_harness/tools/harness.py openspec -- list --json
 ```
 
-Here `uv --project _agentic_harness` selects the tools' Python environment.
+Here `uv --project agentic_harness` selects the tools' Python environment.
 It is a uv option, not a workflow name.
 
 When several homes exist, select one by directory:
 
 ```sh
-uv run --locked --project _agentic_harness python \
-  _agentic_harness/tools/harness.py project --at backend
+uv run --locked --project agentic_harness python \
+  agentic_harness/tools/harness.py project --at backend
 
-uv run --locked --project _agentic_harness python \
-  _agentic_harness/tools/harness.py openspec --at backend -- list --json
+uv run --locked --project agentic_harness python \
+  agentic_harness/tools/harness.py openspec --at backend -- list --json
 ```
 
 `--at` is relative to the Git worktree root. Without it, selection uses the
@@ -200,8 +213,8 @@ nearest OpenSpec home above the current directory. If no home is found, the
 sole installed home can be selected automatically. An ambiguous choice or a
 nearer OpenSpec home that has not adopted this workflow stops the command.
 
-The agent follows the [policy map](_agentic_harness/policies/README.md) and
-[execution procedure](_agentic_harness/procedures/execute.md). The runtime is a
+The agent follows the [policy map](agentic_harness/policies/README.md) and
+[execution procedure](agentic_harness/procedures/execute.md). The runtime is a
 set of explicit phase tools, not an unattended task runner. The agent prepares
 and verifies the requests, selected project, authorizations and original evidence.
 Read-only discovery does not claim work or start the next task.
@@ -221,7 +234,7 @@ flowchart LR
 ```
 
 `budget`, `balanced` and `smart` are explicit profiles in
-[plans.yaml](_agentic_harness/plans.yaml). Their model choices and limits are
+[plans.yaml](agentic_harness/plans.yaml). Their model choices and limits are
 configuration, not measured claims of equivalent quality or savings. Verify
 provider availability before launching a run. Native model calls and GitHub
 publication require the applicable task authority.
@@ -247,7 +260,7 @@ See the [extraction inventory](docs/extraction.md) and [provenance](NOTICE.md).
 
 ```sh
 uv sync --locked
-npm --prefix _agentic_harness ci --ignore-scripts
+npm --prefix agentic_harness ci --ignore-scripts
 uv run --locked pytest
 ```
 
@@ -257,11 +270,11 @@ Edit the Markdown policies and procedures, `plans.yaml`, or the handbook's
 graph and templates. Rebuild the generated page with:
 
 ```sh
-uv run --locked python _agentic_harness/tools/build.py
-uv run --locked python _agentic_harness/tools/build.py --check
+uv run --locked python agentic_harness/tools/build.py
+uv run --locked python agentic_harness/tools/build.py --check
 ```
 
-The builder writes only `_agentic_harness/index.html`. Its `--check` mode is
+The builder writes only `agentic_harness/index.html`. Its `--check` mode is
 read-only and fails if the page is missing or outdated; CI runs that check.
 The page, generator and required inputs are also included in consumer installs.
 Neither build mode changes agent settings or OpenSpec-generated integrations.
@@ -270,7 +283,7 @@ For presentation changes, verify the diagram in an isolated offline
 Chrome/Chromium browser, then inspect desktop and narrow screenshots:
 
 ```sh
-uv run --locked python _agentic_harness/tools/check_render.py
+uv run --locked python agentic_harness/tools/check_render.py
 ```
 
 This browser check verifies the handbook's presentation. It is not automatically

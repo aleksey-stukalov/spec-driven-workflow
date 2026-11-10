@@ -23,7 +23,7 @@ def test_real_dispatch_originals_pass_final_lifecycle_acceptance(repository, tmp
     (archive/'specs/synthetic/spec.md').write_text('## ADDED Requirements\n\n'+block)
     main=root/'project/openspec/specs/synthetic/spec.md';main.parent.mkdir(parents=True);main.write_text(block)
     base=git(root,'rev-parse','HEAD');changed=evidence.changed_scope(root,base)
-    scope=sorted(set(changed['input_scope'])|{'source.py','contract.md','_agentic_harness/projects.yaml','project/openspec/queue.yaml','project/openspec/config.yaml'})
+    scope=sorted(set(changed['input_scope'])|{'source.py','contract.md','agentic_harness/projects.yaml','project/openspec/queue.yaml','project/openspec/config.yaml'})
     bundle=scratch/'final-source'
     manifest=evidence.materialize(root,bundle,scope,deleted_scope=changed['deleted_scope'],project='synthetic',change=CHANGE,run_id='run',base=base,policy='plans-v1')
     mref={'path':str(bundle/'manifest.json'),'sha256':hashlib.sha256((bundle/'manifest.json').read_bytes()).hexdigest()}

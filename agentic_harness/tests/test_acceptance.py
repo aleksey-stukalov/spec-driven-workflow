@@ -20,7 +20,7 @@ def accepted_fixture(repository, tmp_path, *, omission=None, project_root='proje
     spec_home = Path(project_root) / 'openspec'
     if project_root == '.':
         (root / 'project/openspec').rename(root / 'openspec')
-        registration = root / '_agentic_harness/projects.yaml'
+        registration = root / 'agentic_harness/projects.yaml'
         data = yaml.safe_load(registration.read_text())
         data['projects']['synthetic'].update(root='.', queue='openspec/queue.yaml', code_roots=['.'])
         registration.write_text(yaml.safe_dump(data))
@@ -67,10 +67,10 @@ def accepted_fixture(repository, tmp_path, *, omission=None, project_root='proje
     if omission == 'design-contract': design_scope.remove(contract_path)
     design = evidence.materialize(root, design_path, design_scope, project='synthetic', change=CHANGE, run_id='r', base=head, policy='plans-v1')
     changed = evidence.changed_scope(root, head)
-    scope = sorted(set(changed['input_scope']) | {'source.py', 'contract.md', '_agentic_harness/projects.yaml',
+    scope = sorted(set(changed['input_scope']) | {'source.py', 'contract.md', 'agentic_harness/projects.yaml',
                                                 (spec_home / 'queue.yaml').as_posix(), (spec_home / config_name).as_posix()}
                    | ({(spec_home / 'workflow.yaml').as_posix()} if companion else set()))
-    omitted = {'archive':contract_path, 'registry':'_agentic_harness/projects.yaml', 'changed-code':'source.py',
+    omitted = {'archive':contract_path, 'registry':'agentic_harness/projects.yaml', 'changed-code':'source.py',
                'workflow-config': (spec_home / 'workflow.yaml').as_posix()}.get(omission)
     if omitted: scope.remove(omitted)
     deleted = [] if omission == 'deleted' else changed['deleted_scope']

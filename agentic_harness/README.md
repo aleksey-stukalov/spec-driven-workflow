@@ -5,8 +5,8 @@ diagram and current profile tables offline. Markdown and the catalog remain the
 maintained sources. Rebuild the page from the Git worktree root with:
 
 ```sh
-uv run --locked --project _agentic_harness python _agentic_harness/tools/build.py
-uv run --locked --project _agentic_harness python _agentic_harness/tools/build.py --check
+uv run --locked --project agentic_harness python agentic_harness/tools/build.py
+uv run --locked --project agentic_harness python agentic_harness/tools/build.py --check
 ```
 
 Start with the [policy map](policies/README.md). It identifies the required
@@ -41,8 +41,8 @@ project-owned.
 Run the entrypoint from the consumer repository's Git worktree root:
 
 ```sh
-uv run --locked --project _agentic_harness python \
-  _agentic_harness/tools/harness.py project
+uv run --locked --project agentic_harness python \
+  agentic_harness/tools/harness.py project
 ```
 
 For a component, append `--at services/api`, replacing that path with the
@@ -52,7 +52,7 @@ project if no local home is found. Ambiguity or a nearer unadopted home stops
 selection. Keep the returned `id` in the run's machine requests and evidence.
 
 The OpenSpec CLI is installed locally with
-`npm --prefix _agentic_harness ci --ignore-scripts`. Route it through
+`npm --prefix agentic_harness ci --ignore-scripts`. Route it through
 `harness.py openspec --at services/api -- COMMAND`, or omit `--at` under the same
 selection rules. OpenSpec owns its generated files; our skills use `sdw-*` and
 retain the execution, independent review and acceptance gates.

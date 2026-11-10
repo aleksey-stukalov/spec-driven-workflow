@@ -16,5 +16,5 @@ dev = ["pytest>=8.4,<9"]
 package = false
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "_agentic_harness/tests"]
-pythonpath = [".", "tools", "_agentic_harness/tools"]
+testpaths = ["tests", "agentic_harness/tests"]
+pythonpath = [".", "tools", "agentic_harness/tools"]

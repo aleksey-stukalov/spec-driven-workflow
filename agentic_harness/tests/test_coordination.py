@@ -687,7 +687,7 @@ def test_registered_project_cli_retains_environment_policy(repository, tmp_path)
 def test_invalid_cli_project_resolution_returns_blocker(repository, tmp_path, capsys, registration):
     root, _, _ = repository
     # A missing or ambiguous registry must not escape the CLI error contract.
-    registry = root / "_agentic_harness/projects.yaml"
+    registry = root / "agentic_harness/projects.yaml"
     registry.parent.mkdir()
     entry = {"root": "first", "queue": "first/openspec/queue.yaml", "code_roots": ["first"], "checks": [["true"]]}
     for folder in ("first", "module"):

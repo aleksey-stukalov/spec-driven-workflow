@@ -10,7 +10,7 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-PROJECTS_PATH = ROOT / "_agentic_harness/tools/projects.py"
+PROJECTS_PATH = ROOT / "agentic_harness/tools/projects.py"
 spec = importlib.util.spec_from_file_location("harness_isolation_projects", PROJECTS_PATH)
 projects = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = projects
@@ -36,7 +36,7 @@ def entry(root, project_root):
 
 
 def save_registry(root, data):
-    write(root / "_agentic_harness/projects.yaml", yaml.safe_dump(data))
+    write(root / "agentic_harness/projects.yaml", yaml.safe_dump(data))
 
 
 @pytest.fixture
@@ -99,7 +99,7 @@ def test_duplicate_authority_and_duplicate_yaml_keys_rejected(registered):
     save_registry(root, data)
     with pytest.raises(ValueError, match="conflicting/missing OpenSpec authority"):
         projects.registry(root)
-    (root / "_agentic_harness/projects.yaml").write_text("schema_version: 1\nschema_version: 1\nprojects: {}\n")
+    (root / "agentic_harness/projects.yaml").write_text("schema_version: 1\nschema_version: 1\nprojects: {}\n")
     with pytest.raises(ValueError, match="duplicate configuration key"):
         projects.registry(root)
 

@@ -44,8 +44,8 @@ def repository(tmp_path):
     queue = root / 'project' / 'openspec' / 'queue.yaml'
     queue.write_text(yaml.safe_dump({'queue': [{'change': CHANGE, 'depends_on': []}]}))
     (root / 'project/openspec/config.yaml').write_text('schema: spec-driven\n')
-    (root / '_agentic_harness').mkdir()
-    (root / '_agentic_harness/projects.yaml').write_text(yaml.safe_dump({'schema_version': 1, 'projects': {'synthetic': {
+    (root / 'agentic_harness').mkdir()
+    (root / 'agentic_harness/projects.yaml').write_text(yaml.safe_dump({'schema_version': 1, 'projects': {'synthetic': {
         'root': 'project', 'queue': 'project/openspec/queue.yaml', 'code_roots': ['project'], 'checks': [['true']],
         'evidence_exclude': ['data/people.csv', 'runtime/state.json'],
         'environment': {'lockfiles': ['uv.lock'], 'prepare': []}}}}))

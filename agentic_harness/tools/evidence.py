@@ -47,7 +47,7 @@ def _private(rel, exclusions=()):
 
 def _exclusions(root, project):
     """Dependency reads respect private paths declared by every registered domain."""
-    if not os.path.lexists(root / '_agentic_harness/projects.yaml'):
+    if not any(os.path.lexists(root / name) for name in (projects.INDEX_PATH, projects.LEGACY_INDEX_PATH)):
         return []
     registered = projects.registry(root)
     if project not in registered:
@@ -57,10 +57,15 @@ def _exclusions(root, project):
 
 def _base_exclusions(repository, base):
     """Deleted originals retain the privacy policy of their immutable Git base."""
-    config = '_agentic_harness/projects.yaml'
-    listed = subprocess.check_output(['git', '--git-dir', str(repository), 'ls-tree', '-z', base, '--', config])
-    if not listed:
+    # Resolve authority within the immutable commit, never by live-layout or
+    # preferred-name fallback. Two indices can carry conflicting exclusions.
+    present = [name for name in (projects.INDEX_PATH, projects.LEGACY_INDEX_PATH)
+               if subprocess.check_output(['git', '--git-dir', str(repository), 'ls-tree', '-z', base, '--', name])]
+    if len(present) > 1:
+        raise ValueError('ambiguous pinned-base privacy policy: both package directories contain projects.yaml')
+    if not present:
         return []
+    config = present[0]
 
     def read_policy(relative):
         # Both the index and its referenced files belong to this immutable
@@ -78,11 +83,12 @@ def _base_exclusions(repository, base):
     if (set(registered) != {'schema_version', 'projects'}
             or type(registered['schema_version']) is not int
             or registered['schema_version'] not in (1, 2)
-            or not isinstance(registered['projects'], dict)):
+            or not isinstance(registered['projects'], dict) or not registered['projects']):
         raise ValueError('invalid pinned-base project registration')
     exclusions = set()
-    for selected in registered['projects'].values():
-        if not isinstance(selected, dict):
+    for name, selected in registered['projects'].items():
+        if (not isinstance(name, str) or not re.fullmatch(r'[a-z][a-z0-9_-]*', name)
+                or not isinstance(selected, dict)):
             raise ValueError('invalid pinned-base project registration')
         if registered['schema_version'] == 2:
             if set(selected) != {'root'}:
@@ -95,24 +101,35 @@ def _base_exclusions(repository, base):
             optional = {'environment', 'evidence_exclude'}
             if (not required <= set(selected) or set(selected) - required - optional
                     or type(selected.get('schema_version')) is not int
-                    or selected['schema_version'] != 1
-                    or not isinstance(selected['code_roots'], list) or not selected['code_roots']):
+                    or selected['schema_version'] != 1):
                 raise ValueError(f'invalid pinned-base workflow configuration: {companion}')
-            for area in selected['code_roots']:
-                scope_contains(area, area)
-            if len(set(selected['code_roots'])) != len(selected['code_roots']):
-                raise ValueError('invalid pinned-base code roots')
-            projects._argv_commands(selected['checks'], 'pinned-base checks')
-            environment = selected.get('environment', {})
-            if not isinstance(environment, dict) or set(environment) - {'lockfiles', 'prepare'}:
-                raise ValueError('invalid pinned-base environment')
-            locks = environment.get('lockfiles', [])
-            if (not isinstance(locks, list) or any(not isinstance(lock, str) or lock == '.' for lock in locks)
-                    or len(set(locks)) != len(locks)):
-                raise ValueError('invalid pinned-base environment lockfiles')
-            for lock in locks:
-                scope_contains(lock, lock)
-            projects._argv_commands(environment.get('prepare', []), 'pinned-base preparation', empty=True)
+        else:
+            required = {'root', 'queue', 'code_roots', 'checks'}
+            optional = {'environment', 'evidence_exclude'}
+            if not required <= set(selected) or set(selected) - required - optional:
+                raise ValueError('invalid pinned-base project registration')
+            scope_contains(selected['root'], selected['root'])
+            scope_contains(selected['queue'], selected['queue'])
+            if Path(selected['queue']).parent != Path(selected['root']) / 'openspec':
+                raise ValueError('invalid pinned-base project queue')
+        areas = selected['code_roots']
+        if (not isinstance(areas, list) or not areas
+                or any(not isinstance(area, str) for area in areas)
+                or len(set(areas)) != len(areas)):
+            raise ValueError('invalid pinned-base code roots')
+        for area in areas:
+            scope_contains(area, area)
+        projects._argv_commands(selected['checks'], 'pinned-base checks')
+        environment = selected.get('environment', {})
+        if not isinstance(environment, dict) or set(environment) - {'lockfiles', 'prepare'}:
+            raise ValueError('invalid pinned-base environment')
+        locks = environment.get('lockfiles', [])
+        if (not isinstance(locks, list) or any(not isinstance(lock, str) or lock == '.' for lock in locks)
+                or len(set(locks)) != len(locks)):
+            raise ValueError('invalid pinned-base environment lockfiles')
+        for lock in locks:
+            scope_contains(lock, lock)
+        projects._argv_commands(environment.get('prepare', []), 'pinned-base preparation', empty=True)
         paths = selected.get('evidence_exclude', [])
         if (not isinstance(paths, list) or any(not isinstance(path, str) for path in paths)
                 or len(set(paths)) != len(paths)):

@@ -3,11 +3,11 @@ schema_version: 1
 code_roots: [.]
 checks:
   - [uv, run, --locked, pytest]
-  - [uv, run, --locked, python, _agentic_harness/tools/build.py, --check]
-  - [node, _agentic_harness/tools/openspec.mjs, validate, --all, --strict, --no-interactive]
+  - [uv, run, --locked, python, agentic_harness/tools/build.py, --check]
+  - [node, agentic_harness/tools/openspec.mjs, validate, --all, --strict, --no-interactive]
 environment:
-  lockfiles: [uv.lock, _agentic_harness/package-lock.json]
+  lockfiles: [uv.lock, agentic_harness/package-lock.json]
   prepare:
     - [uv, sync, --locked]
-    - [npm, --prefix, _agentic_harness, ci, --ignore-scripts]
+    - [npm, --prefix, agentic_harness, ci, --ignore-scripts]
 evidence_exclude: []

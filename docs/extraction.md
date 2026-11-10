@@ -9,19 +9,20 @@ change an existing run, or certify another project merely by copying files.
 ## Component map
 
 Paths in the source column are relative to that GitBob snapshot. Destination
-paths are relative to this repository. The map separates reusable behavior from
-the project binding required when a repository adopts it.
+paths are relative to this repository, where the package now lives under
+`agentic_harness/`. Source paths keep their original spelling. The map separates
+reusable behavior from the project binding required when a repository adopts it.
 
 | Source component | Destination and extraction boundary |
 | --- | --- |
-| `_agentic_harness/plans.yaml` | `_agentic_harness/plans.yaml` retains the `plans-v1` role routes, context profiles, review gates, and attempt limits. `budget`, `balanced`, and `smart` are selectable profiles. They do not replace the host's global model settings. |
-| `_agentic_harness/policies/` | `_agentic_harness/policies/` holds shared development, execution, and OpenSpec rules. GitBob repository and importer rules are removed from the reusable policy. |
-| `_agentic_harness/procedures/` | `_agentic_harness/procedures/` describes the current pipeline, design hardening, implementation review, and execution. Historical native workflow scripts and their fixed call caps are not prerequisites for a new run. |
-| `_agentic_harness/roles/runtime.md` | `_agentic_harness/roles/runtime.md` defines the common assignment contract. Roles receive their scope, route, and allowance from the selected run. |
-| `_agentic_harness/tools/harness.py`, `intake.py`, `projects.py` | `_agentic_harness/tools/` contains the entrypoint, authority intake, and project resolution. The importer name and fixed source directory become explicit project bindings. |
-| `_agentic_harness/tools/plan_runtime.py`, `dispatch.py` | `_agentic_harness/tools/` retains durable attempt accounting, route preflight, independent review rounds, and dispatch. New projects supply their checks and available provider capabilities. |
-| `_agentic_harness/tools/coordination.py` | `_agentic_harness/tools/` retains queue validation, claims, file assignments, worktree ownership, freezes, and protected cleanup. Repository coordination remains separate from the selected development scope. |
-| `_agentic_harness/tools/evidence.py`, `lifecycle.py` | `_agentic_harness/tools/` retains source bundles, original-result bindings, completion checks, and GitHub operation reconciliation. Application-specific paths and dependency assumptions belong in project configuration. |
+| `_agentic_harness/plans.yaml` | `agentic_harness/plans.yaml` retains the `plans-v1` role routes, context profiles, review gates, and attempt limits. `budget`, `balanced`, and `smart` are selectable profiles. They do not replace the host's global model settings. |
+| `_agentic_harness/policies/` | `agentic_harness/policies/` holds shared development, execution, and OpenSpec rules. GitBob repository and importer rules are removed from the reusable policy. |
+| `_agentic_harness/procedures/` | `agentic_harness/procedures/` describes the current pipeline, design hardening, implementation review, and execution. Historical native workflow scripts and their fixed call caps are not prerequisites for a new run. |
+| `_agentic_harness/roles/runtime.md` | `agentic_harness/roles/runtime.md` defines the common assignment contract. Roles receive their scope, route, and allowance from the selected run. |
+| `_agentic_harness/tools/harness.py`, `intake.py`, `projects.py` | `agentic_harness/tools/` contains the entrypoint, authority intake, and project resolution. The importer name and fixed source directory become explicit project bindings. |
+| `_agentic_harness/tools/plan_runtime.py`, `dispatch.py` | `agentic_harness/tools/` retains durable attempt accounting, route preflight, independent review rounds, and dispatch. New projects supply their checks and available provider capabilities. |
+| `_agentic_harness/tools/coordination.py` | `agentic_harness/tools/` retains queue validation, claims, file assignments, worktree ownership, freezes, and protected cleanup. Repository coordination remains separate from the selected development scope. |
+| `_agentic_harness/tools/evidence.py`, `lifecycle.py` | `agentic_harness/tools/` retains source bundles, original-result bindings, completion checks, and GitHub operation reconciliation. Application-specific paths and dependency assumptions belong in project configuration. |
 | Root and importer `run-pipeline`, `harden-change`, and `review-impl` skills | Package-owned `sdw-run`, `sdw-harden`, and `sdw-review` entrypoints select a project and read the shared policies and procedures. The new names avoid taking ownership of existing skills with the old names. |
 | `_agentic_harness/projects.yaml` and importer OpenSpec configuration | Each adopted OpenSpec home supplies native context and local `openspec/workflow.yaml` settings for source scope, checks and environment. An internal index preserves execution identities. [Scope and project binding](scope.md) defines the boundary. The GitBob importer settings are not package defaults. |
 | `_agentic_harness/package.json` and lockfile | The package retains a local, pinned OpenSpec toolchain. The extraction baseline is `@fission-ai/openspec` version `1.14.3`, requiring Node.js `>=20.19.0`; a tool upgrade is a separate reviewed change. |
@@ -29,8 +30,8 @@ the project binding required when a repository adopts it.
 | Harness tests and synthetic native transports | Portable regression coverage belongs to the package. Adoption tests must also cover existing files, partial scope, and repeated installation. Passing synthetic checks does not establish paid model quality or provider equivalence. |
 | `_agentic_harness/index.html`, presentation templates and workflow graph | The visual handbook is rebuilt from current package Markdown and `plans.yaml`. Its presentation-only generator retains the responsive styling and SVG layout while omitting importer settings, historical prose and native adapter writes. |
 
-The [policy map](../_agentic_harness/policies/README.md) is the entrypoint for
-shared instructions. The [execution procedure](../_agentic_harness/procedures/execute.md)
+The [policy map](../agentic_harness/policies/README.md) is the entrypoint for
+shared instructions. The [execution procedure](../agentic_harness/procedures/execute.md)
 describes current runtime use. This inventory explains origin and ownership; it
 does not define a second set of execution rules.
 

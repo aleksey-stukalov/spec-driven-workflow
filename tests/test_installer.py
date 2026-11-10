@@ -109,7 +109,7 @@ def test_install_preserves_user_settings_and_upstream_bytes(distribution, target
     assert (target / "openspec/changes").is_dir()
     assert calls == ["npm ci"]
     assert workflow.doctor(target)["status"] == "valid"
-    ignored = subprocess.run(["git", "check-ignore", "_agentic_harness/node_modules/@fission-ai/openspec/package.json"], cwd=target, capture_output=True)
+    ignored = subprocess.run(["git", "check-ignore", "agentic_harness/node_modules/@fission-ai/openspec/package.json"], cwd=target, capture_output=True)
     assert ignored.returncode == 0
 
 
@@ -199,7 +199,7 @@ def test_dry_run_changes_neither_target_nor_dependencies(distribution, target):
 def test_update_rejects_locally_edited_payload_before_writes(distribution, target):
     source, _ = distribution
     adopt(source, target)
-    (target / "_agentic_harness/policies/example.md").write_text("Locally edited package rule.\n")
+    (target / "agentic_harness/policies/example.md").write_text("Locally edited package rule.\n")
     before = files(target)
     with pytest.raises(workflow.InstallError, match="locally changed"):
         workflow.installation(target, source=source, update=True)
@@ -209,7 +209,7 @@ def test_update_rejects_locally_edited_payload_before_writes(distribution, targe
 def test_update_preserves_local_config_and_surrounding_instructions(distribution, target):
     source, _ = distribution
     adopt(source, target)
-    (source / "_agentic_harness/policies/example.md").write_text("Updated package rule.\n")
+    (source / "agentic_harness/policies/example.md").write_text("Updated package rule.\n")
     agents = target / "AGENTS.md"
     agents.write_text("User addition before.\n\n" + agents.read_text() + "\nUser addition after.\n")
     config = target / "openspec/workflow.yaml"
@@ -218,8 +218,8 @@ def test_update_preserves_local_config_and_surrounding_instructions(distribution
     config.write_text("# Local configuration comment\n" + yaml.safe_dump(data))
     before_config = config.read_bytes()
     result = workflow.installation(target, source=source, update=True)
-    assert "_agentic_harness/policies/example.md" in result["changed"]
-    assert (target / "_agentic_harness/policies/example.md").read_text() == "Updated package rule.\n"
+    assert "agentic_harness/policies/example.md" in result["changed"]
+    assert (target / "agentic_harness/policies/example.md").read_text() == "Updated package rule.\n"
     assert config.read_bytes() == before_config
     assert agents.read_text().startswith("User addition before.")
     assert agents.read_text().endswith("User addition after.\n")
@@ -316,7 +316,7 @@ def test_child_environment_does_not_reuse_user_codex_home(tmp_path, monkeypatch)
     assert not (tmp_path / "real-user-config").exists()
 
 
-@pytest.mark.parametrize("group,path", [("managed", "README.md"), ("managed", "_agentic_harness/projects.yaml"), ("managed", "openspec/workflow.yaml"), ("upstream", ".codex/config.toml"), ("blocks", "CONTRIBUTING.md")])
+@pytest.mark.parametrize("group,path", [("managed", "README.md"), ("managed", "agentic_harness/projects.yaml"), ("managed", "openspec/workflow.yaml"), ("upstream", ".codex/config.toml"), ("blocks", "CONTRIBUTING.md")])
 def test_manifest_cannot_claim_unrelated_files(distribution, target, group, path):
     source, _ = distribution
     adopt(source, target)
@@ -364,7 +364,7 @@ def test_doctor_detects_stale_local_binding(distribution, target):
 def test_atomic_write_failure_keeps_original(distribution, target, monkeypatch):
     source, _ = distribution
     adopt(source, target)
-    (source / "_agentic_harness/policies/example.md").write_text("New content.\n")
+    (source / "agentic_harness/policies/example.md").write_text("New content.\n")
     before = files(target)
     original_replace = workflow.os.replace
 
@@ -415,11 +415,11 @@ def test_optional_environment_fields_and_underscore_id(distribution, target):
 def test_concurrent_local_config_edit_during_preparation_is_preserved(distribution, target, monkeypatch):
     source, _ = distribution
     adopt(source, target)
-    package = source / "_agentic_harness/package-lock.json"
+    package = source / "agentic_harness/package-lock.json"
     package.write_text("updated lock\n")
     config = target / "openspec/workflow.yaml"
     original_prepare = workflow.prepare_dependencies
-    prior_payload = (target / "_agentic_harness/package-lock.json").read_bytes()
+    prior_payload = (target / "agentic_harness/package-lock.json").read_bytes()
 
     def concurrent_edit(*args):
         data = yaml.safe_load(config.read_text())
@@ -431,7 +431,7 @@ def test_concurrent_local_config_edit_during_preparation_is_preserved(distributi
     with pytest.raises(workflow.InstallError, match="target changed while preparing"):
         workflow.installation(target, source=source, update=True)
     assert yaml.safe_load(config.read_text())["checks"] == [["new-test-command"]]
-    assert (target / "_agentic_harness/package-lock.json").read_bytes() == prior_payload
+    assert (target / "agentic_harness/package-lock.json").read_bytes() == prior_payload
 
 
 @pytest.mark.parametrize("invalid", ["ambiguous", "external-store", "invalid-yaml", "symlink"])
@@ -501,7 +501,7 @@ def test_doctor_rejects_source_scope_covering_another_domains_metadata(distribut
         workflow.doctor(target)
 
 
-@pytest.mark.parametrize("name", ["_agentic_harness/policies/example.md", ".agents/skills/openspec-propose/SKILL.md", "AGENTS.md"])
+@pytest.mark.parametrize("name", ["agentic_harness/policies/example.md", ".agents/skills/openspec-propose/SKILL.md", "AGENTS.md"])
 def test_early_generator_edit_cannot_become_trusted_baseline(distribution, target, monkeypatch, name):
     source, calls = distribution
     adopt(source, target)
@@ -799,7 +799,7 @@ def test_failed_migration_rolls_back_index_and_new_companion(distribution, targe
     source, _ = distribution
     adopt(source, target)
     legacy_configuration(target)
-    (source / "_agentic_harness/policies/example.md").write_text("Updated policy delivered with migration.\n")
+    (source / "agentic_harness/policies/example.md").write_text("Updated policy delivered with migration.\n")
     before = files(target)
     original_write = workflow.atomic_write
 

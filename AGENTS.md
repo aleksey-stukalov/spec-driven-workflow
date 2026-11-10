@@ -11,7 +11,7 @@ consumer project's configuration and specifications.
   files require narrow ownership and conflict detection.
 - Keep whole-repository and selected-folder installations working. Do not assume
   the application uses Python, uv, GitBob or a particular source layout.
-- The runtime's dependencies are isolated under `_agentic_harness`. Consumer
+- The runtime's dependencies are isolated under `agentic_harness`. Consumer
   checks, source scope and dependency locks come from `openspec/workflow.yaml`.
   Native OpenSpec context and rules remain in its own configuration. Preserve
   internal registration IDs when migrating settings or routing by directory.
