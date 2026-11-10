@@ -37,6 +37,19 @@ were readable. The narrow diagram scrolls horizontally inside its container;
 the page itself does not overflow. Screenshots were temporary QA artifacts,
 not inputs to the generated page.
 
+The first Ubuntu CI run exposed two headings that exceeded their fixed SVG
+boxes with Linux's system font, although they fit on macOS. Their captions were
+shortened to "Review the result" and "Record; assess cleanup". The explanatory
+text, graph, geometry and render-check thresholds were preserved. The HTML was
+regenerated for the corrected captions.
+
+After the caption fix, all 26 builder, 5 real installation integration and
+8 browser-probe tests passed again. Both CLI theme checks passed at both widths.
+An independent temporary-page probe reproduced the original two failures with
+Verdana; the corrected page passed with system-ui, Arial, Verdana and Tahoma.
+In Verdana the two headings now leave approximately 36 px and 22 px on each
+side. A new desktop diagram screenshot was inspected after regeneration.
+
 ## Independent review
 
 A read-only reviewer checked the design and final implementation for portable

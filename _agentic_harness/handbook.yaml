@@ -134,7 +134,7 @@ graph:
     - Verified revision + remaining risks
   - id: human-review
     role: human
-    label: Review the concrete result
+    label: Review the result
     details:
     - Approve or request changes
   - id: merge-authorization
@@ -149,7 +149,7 @@ graph:
     - Current revision + required CI
   - id: cleanup
     role: lead
-    label: Record result; assess cleanup
+    label: Record; assess cleanup
     details:
     - Keep dirty / active / resume trees
   edges:
