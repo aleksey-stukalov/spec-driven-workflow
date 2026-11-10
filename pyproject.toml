@@ -1,0 +1,20 @@
+[project]
+name = "spec-driven-workflow"
+version = "0.1.0"
+description = "A portable development workflow built on unmodified OpenSpec"
+requires-python = ">=3.12"
+dependencies = [
+  "PyYAML>=6.0.2,<7",
+  "markdown-it-py>=3.0,<5",
+  "tomlkit>=0.13,<1",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.4,<9"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "_agentic_harness/tests"]
+pythonpath = [".", "tools", "_agentic_harness/tools"]

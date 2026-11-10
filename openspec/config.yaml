@@ -1,0 +1,39 @@
+schema: spec-driven
+
+context: |
+  This repository distributes a portable development workflow built on OpenSpec.
+  The local development repository is spec-driven-workflow. Its OpenSpec root is
+  the repository root; the runtime registers logical projects independently of
+  their source-code roots. Write artifacts in concise English.
+  OpenSpec 1.14.3 is pinned under _agentic_harness. Its generated skills and
+  commands remain upstream-owned and unmodified. Workflow integrations use the
+  sdw-* namespace and read canonical policies and procedures under
+  _agentic_harness/. The standard spec-driven schema is sufficient for this
+  initial extraction; no fork of OpenSpec is part of the change.
+  The runtime preserves independent reviews, durable limits, original evidence,
+  recovery, project-scoped work and explicit authority for external actions.
+  Domain settings belong in _agentic_harness/projects.yaml. Code scopes, the
+  OpenSpec project root and repository-level installation files are distinct.
+  The source is ignatov/gitbob PR 128 at commit
+  8a21c9da8e38a55079df81db00200de018375e01. Extract reusable behavior and supported
+  policies; leave GitBob application rules and historical runs in GitBob.
+  Initial extraction is local. Migration of GitBob and publication to GitHub are
+  separate later actions. Do not claim those actions have occurred.
+  openspec/specs/ records implemented and verified behavior. Active change
+  artifacts describe proposed work until their tasks and verification complete.
+  A successful OpenSpec validation proves artifact structure, not execution
+  quality, model equivalence or production readiness.
+
+rules:
+  proposal:
+    - State affected logical domains and explicit exclusions.
+    - Separate package behavior from target-project facts and shipped profile choices.
+  specs:
+    - Define observable behavior and failure cases with stable scenario identifiers.
+    - Distinguish process scope from filesystem isolation and host-local coordination from distributed locking.
+  design:
+    - Record file ownership, compatibility boundaries and migration or rollback behavior.
+    - Identify how existing target instructions and OpenSpec artifacts are preserved.
+  tasks:
+    - Keep tasks unchecked until implementation and relevant verification are complete.
+    - Include root adoption, scoped adoption and unchanged upstream-generation checks where affected.

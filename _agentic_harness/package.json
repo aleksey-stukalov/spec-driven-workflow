@@ -1,0 +1,13 @@
+{
+  "name": "spec-driven-workflow-toolchain",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pinned upstream tools for the spec-driven workflow",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "dependencies": {
+    "@fission-ai/openspec": "1.14.3"
+  }
+}

@@ -1,0 +1,15 @@
+schema_version: 1
+projects:
+  workflow:
+    root: .
+    queue: openspec/queue.yaml
+    code_roots: [.]
+    checks:
+      - [uv, run, --locked, pytest]
+      - [node, _agentic_harness/tools/openspec.mjs, validate, --all, --strict, --no-interactive]
+    environment:
+      lockfiles: [uv.lock, _agentic_harness/package-lock.json]
+      prepare:
+        - [uv, sync, --locked]
+        - [npm, --prefix, _agentic_harness, ci, --ignore-scripts]
+    evidence_exclude: []

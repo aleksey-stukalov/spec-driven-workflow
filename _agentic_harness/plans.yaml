@@ -1,0 +1,584 @@
+# Requested workflow profiles retained from source revision
+# 8a21c9da8e38a55079df81db00200de018375e01. Availability is verified per run.
+# This catalog does not change host defaults or claim model equivalence.
+schema_version: 1
+policy_version: plans-v1
+profile_version: 1
+default: balanced
+source_date: '2026-11-09'
+max_workers: 2
+nested_delegation: false
+profiles:
+  lookup:
+    initial_tokens: 8000
+    working_tokens: 16000
+    result_tokens: 2000
+    handoff_tokens: 16000
+    requires_authority: false
+  context:
+    initial_tokens: 16000
+    working_tokens: 64000
+    result_tokens: 2000
+    handoff_tokens: 64000
+    requires_authority: false
+  standard:
+    initial_tokens: 16000
+    working_tokens: 180000
+    result_tokens: 4000
+    handoff_tokens: 200000
+    requires_authority: false
+  deep:
+    initial_tokens: 32000
+    working_tokens: 256000
+    result_tokens: 4000
+    handoff_tokens: 256000
+    requires_authority: true
+steps:
+- id: human
+  label: Human developer
+  scope: human
+  context_profile: none
+  permitted_writes: human
+  boundary: Owns scope, plan, acceptance and extra-cycle decisions; models and context
+    budgets do not apply.
+- id: lead_plan
+  label: 'Lead: initial plan and substantive replanning'
+  scope: task
+  context_profile: standard
+  permitted_writes: integration
+  boundary: Per task; standard; owned integration/evidence only. Routine coordination
+    consumes tokens, not another worker launch.
+- id: lookup
+  label: Named lookup scout
+  scope: task
+  context_profile: lookup
+  permitted_writes: read_only
+  boundary: Per task, batched named lookups; lookup; repository read-only.
+- id: context
+  label: Combined context analyst
+  scope: task
+  context_profile: context
+  permitted_writes: read_only
+  boundary: Per task; context; repository read-only. Complete interface/scenario brief.
+- id: design_author
+  label: Specification / design author
+  scope: design
+  context_profile: standard
+  permitted_writes: assigned_design
+  boundary: Per design; standard; assigned specification/design/task files. Existing
+    artifacts need one bounded reconciliation instead of needless rewriting.
+- id: design_contract
+  label: Independent design contract / scenario reviewer
+  scope: D
+  context_profile: standard
+  permitted_writes: read_only
+  boundary: Shared D rounds; standard; read-only. One of two required design lenses.
+- id: design_risk
+  label: Independent design feasibility / risk reviewer
+  scope: D
+  context_profile: standard
+  permitted_writes: read_only
+  boundary: Same D counter; standard; read-only. The second lens is not an extra round.
+- id: adjudicator
+  label: Batched skeptic / finding adjudicator
+  scope: phase
+  context_profile: standard
+  permitted_writes: read_only
+  boundary: Separate allowance per design/implementation phase; standard; read-only.
+    One full nonempty findings batch per round, including retries within this cap.
+- id: design_fixer
+  label: Design fixer
+  scope: design
+  context_profile: standard
+  permitted_writes: assigned_design
+  boundary: Per design; standard; assigned artifacts and affected checks. Reserve
+    subsequent D rounds before editing.
+- id: implementer
+  label: Implementer / initial test author
+  scope: slice
+  context_profile: standard
+  permitted_writes: assigned_code
+  boundary: Per predeclared implementation slice; standard; exclusive assigned code/tests.
+- id: implementation_behavior
+  label: Independent behavior / test reviewer
+  scope: I
+  context_profile: standard
+  permitted_writes: read_only
+  boundary: Shared I rounds per integrated change; standard; read-only. Checks contracts,
+    behavior and test strength.
+- id: implementation_safety
+  label: Independent runtime / safety reviewer
+  scope: I
+  context_profile: standard
+  permitted_writes: read_only
+  boundary: Same I counter; standard; read-only. Checks recovery, concurrency, resources
+    and affected consumers.
+- id: implementation_fixer
+  label: Implementation fixer
+  scope: change
+  context_profile: standard
+  permitted_writes: assigned_code
+  boundary: Per integrated change; standard; coherent assigned code/tests and related
+    design corrections. Reserve subsequent I rounds.
+- id: lead_verify
+  label: 'Lead: final integration and verification'
+  scope: task
+  context_profile: standard
+  permitted_writes: integration
+  boundary: Per task; standard; run required checks and assemble evidence. Any material
+    edit also consumes its repair allowance and invalidates affected review.
+- id: escalation
+  label: Exceptional escalation beyond the selected plan
+  scope: task
+  context_profile: standard
+  permitted_writes: authorized_only
+  boundary: One named question only after a bounded extension; standard or separately
+    admitted deep context; read-only unless paths are authorized.
+plans:
+  budget:
+    clean_rounds: 1
+    steps:
+      human:
+        minimum: null
+        maximum: null
+        routes:
+          codex: null
+          claude: null
+      lead_plan:
+        minimum: 1
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: medium
+          claude:
+            model: claude-sonnet-5-5
+            effort: medium
+      lookup:
+        minimum: 0
+        maximum: 1
+        routes:
+          codex:
+            model: gpt-6-luna
+            effort: low
+          claude:
+            model: claude-haiku-5-5
+            effort: low
+      context:
+        minimum: 1
+        maximum: 1
+        routes:
+          codex:
+            model: gpt-6-luna
+            effort: high
+          claude:
+            model: claude-haiku-5-5
+            effort: high
+      design_author:
+        minimum: 1
+        maximum: 1
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: high
+          claude:
+            model: claude-sonnet-5-5
+            effort: high
+      design_contract:
+        minimum: 1
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: high
+          claude:
+            model: claude-sonnet-5-5
+            effort: high
+      design_risk:
+        minimum: 1
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: high
+          claude:
+            model: claude-sonnet-5-5
+            effort: high
+      adjudicator:
+        minimum: 0
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: high
+          claude:
+            model: claude-sonnet-5-5
+            effort: high
+      design_fixer:
+        minimum: 0
+        maximum: 1
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: high
+          claude:
+            model: claude-sonnet-5-5
+            effort: high
+      implementer:
+        minimum: 1
+        maximum: 1
+        routes:
+          codex:
+            model: gpt-6-luna
+            effort: high
+          claude:
+            model: claude-haiku-5-5
+            effort: high
+      implementation_behavior:
+        minimum: 1
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: high
+          claude:
+            model: claude-sonnet-5-5
+            effort: high
+      implementation_safety:
+        minimum: 1
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: high
+          claude:
+            model: claude-sonnet-5-5
+            effort: high
+      implementation_fixer:
+        minimum: 0
+        maximum: 1
+        routes:
+          codex:
+            model: gpt-6-luna
+            effort: high
+          claude:
+            model: claude-haiku-5-5
+            effort: high
+      lead_verify:
+        minimum: 1
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: high
+          claude:
+            model: claude-sonnet-5-5
+            effort: high
+      escalation:
+        minimum: 0
+        maximum: 0
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: high
+          claude:
+            model: claude-sonnet-5-5
+            effort: high
+  balanced:
+    clean_rounds: 1
+    steps:
+      human:
+        minimum: null
+        maximum: null
+        routes:
+          codex: null
+          claude: null
+      lead_plan:
+        minimum: 1
+        maximum: 3
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: high
+          claude:
+            model: claude-sonnet-5-5
+            effort: high
+      lookup:
+        minimum: 0
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6-luna
+            effort: low
+          claude:
+            model: claude-haiku-5-5
+            effort: low
+      context:
+        minimum: 1
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: medium
+          claude:
+            model: claude-sonnet-5-5
+            effort: medium
+      design_author:
+        minimum: 1
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: high
+          claude:
+            model: claude-opus-5-5
+            effort: high
+      design_contract:
+        minimum: 1
+        maximum: 3
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: high
+          claude:
+            model: claude-opus-5-5
+            effort: high
+      design_risk:
+        minimum: 1
+        maximum: 3
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: high
+          claude:
+            model: claude-opus-5-5
+            effort: high
+      adjudicator:
+        minimum: 0
+        maximum: 3
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: high
+          claude:
+            model: claude-opus-5-5
+            effort: high
+      design_fixer:
+        minimum: 0
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: high
+          claude:
+            model: claude-opus-5-5
+            effort: high
+      implementer:
+        minimum: 1
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: medium
+          claude:
+            model: claude-sonnet-5-5
+            effort: medium
+      implementation_behavior:
+        minimum: 1
+        maximum: 3
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: high
+          claude:
+            model: claude-opus-5-5
+            effort: high
+      implementation_safety:
+        minimum: 1
+        maximum: 3
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: high
+          claude:
+            model: claude-opus-5-5
+            effort: high
+      implementation_fixer:
+        minimum: 0
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: medium
+          claude:
+            model: claude-sonnet-5-5
+            effort: medium
+      lead_verify:
+        minimum: 1
+        maximum: 3
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: high
+          claude:
+            model: claude-sonnet-5-5
+            effort: high
+      escalation:
+        minimum: 0
+        maximum: 0
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: high
+          claude:
+            model: claude-opus-5-5
+            effort: high
+  smart:
+    clean_rounds: 2
+    steps:
+      human:
+        minimum: null
+        maximum: null
+        routes:
+          codex: null
+          claude: null
+      lead_plan:
+        minimum: 1
+        maximum: 4
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: high
+          claude:
+            model: claude-opus-5-5
+            effort: high
+      lookup:
+        minimum: 0
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6-luna
+            effort: medium
+          claude:
+            model: claude-haiku-5-5
+            effort: medium
+      context:
+        minimum: 1
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: high
+          claude:
+            model: claude-sonnet-5-5
+            effort: high
+      design_author:
+        minimum: 1
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: xhigh
+          claude:
+            model: claude-opus-5-5
+            effort: xhigh
+      design_contract:
+        minimum: 2
+        maximum: 4
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: xhigh
+          claude:
+            model: claude-opus-5-5
+            effort: xhigh
+      design_risk:
+        minimum: 2
+        maximum: 4
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: xhigh
+          claude:
+            model: claude-opus-5-5
+            effort: xhigh
+      adjudicator:
+        minimum: 0
+        maximum: 4
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: xhigh
+          claude:
+            model: claude-opus-5-5
+            effort: xhigh
+      design_fixer:
+        minimum: 0
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: xhigh
+          claude:
+            model: claude-opus-5-5
+            effort: xhigh
+      implementer:
+        minimum: 1
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: high
+          claude:
+            model: claude-sonnet-5-5
+            effort: high
+      implementation_behavior:
+        minimum: 2
+        maximum: 4
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: xhigh
+          claude:
+            model: claude-opus-5-5
+            effort: xhigh
+      implementation_safety:
+        minimum: 2
+        maximum: 4
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: xhigh
+          claude:
+            model: claude-opus-5-5
+            effort: xhigh
+      implementation_fixer:
+        minimum: 0
+        maximum: 2
+        routes:
+          codex:
+            model: gpt-6.1-sol
+            effort: high
+          claude:
+            model: claude-sonnet-5-5
+            effort: high
+      lead_verify:
+        minimum: 1
+        maximum: 4
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: xhigh
+          claude:
+            model: claude-opus-5-5
+            effort: xhigh
+      escalation:
+        minimum: 0
+        maximum: 0
+        routes:
+          codex:
+            model: gpt-6-astra
+            effort: xhigh
+          claude:
+            model: claude-opus-5-5
+            effort: xhigh
