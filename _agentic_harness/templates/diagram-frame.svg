@@ -1,0 +1,50 @@
+<svg viewBox="0 0 1200 1470" role="img" aria-labelledby="flow-title flow-desc" class="diagram">
+<title id="flow-title">Development flow from human task intake to authorized merge and safe worktree cleanup</title>
+
+<desc id="flow-desc">Four role lanes: human developer, lead, writers and independent reviewers. Design and code each have a fix-and-review loop. Blocked or incomplete inputs cannot reach PR readiness. A human can request changes; merge requires authorization and verified checks.</desc>
+
+<defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--blue)" /></marker>
+      <marker id="arrow-loop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--amber)" /></marker>
+      <marker id="arrow-stop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--red)" /></marker>
+    </defs>
+
+<rect class="lane alt" x="12" y="12" width="244" height="1410" rx="8" />
+<rect class="lane" x="268" y="12" width="264" height="1410" rx="8" />
+<rect class="lane alt" x="544" y="12" width="304" height="1410" rx="8" />
+<rect class="lane" x="860" y="12" width="328" height="1410" rx="8" />
+
+<text class="lane-title" x="134" y="42" text-anchor="middle">Human developer</text>
+<text class="lane-detail" x="134" y="62" text-anchor="middle">Scope · priority · acceptance</text>
+
+<text class="lane-title" x="400" y="42" text-anchor="middle">Lead / integrator</text>
+<text class="lane-detail" x="400" y="62" text-anchor="middle">Owns decisions and handoffs</text>
+
+<text class="lane-title" x="696" y="42" text-anchor="middle">Authors / coders</text>
+<text class="lane-detail" x="696" y="62" text-anchor="middle">Exclusive file ownership</text>
+
+<text class="lane-title" x="1024" y="42" text-anchor="middle">Independent review</text>
+<text class="lane-detail" x="1024" y="62" text-anchor="middle">Fresh inputs · read-only scope</text>
+
+<text class="phase-title" x="36" y="230">Prepare</text>
+<text class="phase-copy" x="36" y="254">Intent becomes a bounded</text>
+<text class="phase-copy" x="36" y="274">contract in an isolated tree.</text>
+
+<text class="phase-title" x="36" y="627">Implement</text>
+<text class="phase-copy" x="36" y="651">Workers own files.</text>
+<text class="phase-copy" x="36" y="671">The lead owns integration.</text>
+
+<text class="phase-title" x="36" y="861">Verify</text>
+<text class="phase-copy" x="36" y="885">A budget limit is not</text>
+<text class="phase-copy" x="36" y="905">permission to skip review.</text>
+
+<text class="phase-title" x="888" y="989">No automatic acceptance</text>
+<text class="phase-copy" x="888" y="1014">The final files must have passed review.</text>
+<text class="phase-copy" x="888" y="1034">Later edits invalidate that review's scope.</text>
+<text class="phase-copy" x="888" y="1074">Missing results are not zero findings.</text>
+<text class="phase-copy" x="888" y="1094">Disputed major defects block readiness.</text>
+
+<text class="lane-detail" x="24" y="1450">Development flow · each plan defines review minima and limits; reserve review after fixes; additional cycles require human approval.</text>
+
+<!-- GRAPH -->
+</svg>

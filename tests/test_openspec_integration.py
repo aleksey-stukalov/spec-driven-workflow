@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -89,6 +90,20 @@ def write(project, relative, content):
     return path
 
 
+def assert_installed_handbook(target, working_directory):
+    script = target / "_agentic_harness/tools/build.py"
+    page = target / "_agentic_harness/index.html"
+    expected = (HARNESS / "index.html").read_bytes()
+    assert page.read_bytes() == expected
+    for flags in (["--check"], [], ["--check"]):
+        result = subprocess.run(
+            [sys.executable, str(script), *flags], cwd=working_directory,
+            text=True, capture_output=True, timeout=30,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert page.read_bytes() == expected
+
+
 def test_published_version_matches_the_exact_toolchain_pin(tmp_path, cli_env):
     package = json.loads((HARNESS / "package.json").read_text())
     lock = json.loads((HARNESS / "package-lock.json").read_text())
@@ -163,6 +178,10 @@ def test_installed_workflow_survives_upstream_update(tmp_path, cli_env, monkeypa
     config = write(target, "openspec/config.yaml", "schema: spec-driven\ncontext: Existing product conventions.\n")
     product_spec = write(target, "openspec/specs/payments/spec.md", "# Existing payments specification\n")
     write(target, "AGENTS.md", "# Local instructions\n\nPreserve the product's conventions.\n")
+    native_settings = {
+        write(target, ".codex/config.toml", 'model = "product-selected-model"\n'): b'model = "product-selected-model"\n',
+        write(target, ".claude/settings.json", '{"model":"product-selected-model"}\n'): b'{"model":"product-selected-model"}\n',
+    }
     # Simulate a developer's explicit global Codex directory. Staged init must
     # not discover or clean legacy OpenSpec prompts in this separate directory.
     developer_codex = tmp_path / "developer-codex"
@@ -185,6 +204,9 @@ def test_installed_workflow_survives_upstream_update(tmp_path, cli_env, monkeypa
     manifest = json.loads((target / "_agentic_harness/install.json").read_text())
     managed_before = {name: (target / name).read_bytes() for name in manifest["managed"]}
     assert any("/skills/sdw-" in name for name in managed_before)
+    assert_installed_handbook(target, target)
+    assert {name: (target / name).read_bytes() for name in managed_before} == managed_before
+    assert {path: path.read_bytes() for path in native_settings} == native_settings
 
     pristine = tmp_path / "reference"
     pristine.mkdir()
@@ -196,6 +218,7 @@ def test_installed_workflow_survives_upstream_update(tmp_path, cli_env, monkeypa
     assert config.read_bytes() == config_bytes
     assert product_spec.read_bytes() == spec_bytes
     assert local_settings.read_bytes() == settings_bytes
+    assert {path: path.read_bytes() for path in native_settings} == native_settings
     assert (target / "AGENTS.md").read_text().startswith("# Local instructions\n\nPreserve the product's conventions.\n")
     assert workflow.doctor(target)["status"] == "valid"
 
@@ -217,6 +240,7 @@ def test_folder_installation_uses_native_directory_discovery_without_a_name(tmp_
     assert not (target / "openspec").exists()
     companion = project / "openspec/workflow.yaml"
     assert companion.is_file()
+    assert_installed_handbook(target, source)
     launcher = target / "_agentic_harness/tools/openspec.mjs"
     context = json.loads(run_cli(source, cli_env, "context", "--json", launcher=launcher).stdout)
     assert Path(context["root"]["path"]).resolve() == project.resolve()

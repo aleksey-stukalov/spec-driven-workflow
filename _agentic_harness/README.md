@@ -1,5 +1,14 @@
 # Installed development workflow
 
+Open the generated [visual handbook](index.html) in a browser to read the process
+diagram and current profile tables offline. Markdown and the catalog remain the
+maintained sources. Rebuild the page from the Git worktree root with:
+
+```sh
+uv run --locked --project _agentic_harness python _agentic_harness/tools/build.py
+uv run --locked --project _agentic_harness python _agentic_harness/tools/build.py --check
+```
+
 Start with the [policy map](policies/README.md). It identifies the required
 instructions for the current phase. The [execution procedure](procedures/execute.md)
 connects project selection, original evidence, isolated workspaces and durable

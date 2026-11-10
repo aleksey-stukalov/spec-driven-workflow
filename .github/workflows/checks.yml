@@ -20,5 +20,8 @@ jobs:
           python-version: '3.12'
       - run: uv sync --locked
       - run: npm --prefix _agentic_harness ci --ignore-scripts
+      - run: uv run --locked python _agentic_harness/tools/build.py --check
+      - run: uv run --locked python _agentic_harness/tools/check_render.py
+      - run: uv run --locked python _agentic_harness/tools/check_render.py --dark
       - run: uv run --locked pytest
       - run: node _agentic_harness/tools/openspec.mjs validate --all --strict --no-interactive

@@ -1,0 +1,335 @@
+# Presentation metadata only. Prose lives in Markdown; routes and limits in plans.yaml.
+schema_version: 1
+sections:
+- id: workflow
+  path: procedures/pipeline.md
+  title: Development flow
+- id: start
+  path: README.md
+  title: Using the workflow
+- id: reading
+  path: policies/README.md
+  title: Reading map
+- id: plans
+  path: policies/plans.md
+  title: Plans and context
+- id: scope
+  path: policies/repository.md
+  title: Repository scope
+- id: development
+  path: policies/development.md
+  title: Development lifecycle
+- id: openspec
+  path: policies/openspec.md
+  title: OpenSpec
+- id: execution
+  path: procedures/execute.md
+  title: Execution and recovery
+- id: design
+  path: procedures/harden-change.md
+  title: Design hardening
+- id: review
+  path: procedures/review-impl.md
+  title: Implementation review
+- id: evidence
+  path: policies/execution.md
+  title: Execution policy
+- id: roles
+  path: roles/runtime.md
+  title: Roles and boundaries
+graph:
+  nodes:
+  - id: intake
+    role: human
+    label: Define the task
+    details:
+    - Outcome, scope and constraints
+  - id: queue
+    role: lead
+    label: Ticket + eligible queue item
+    details:
+    - Project, change and dependencies
+  - id: worktree
+    role: lead
+    label: Create / resume worktree
+    details:
+    - Pin base, ownership and budget
+  - id: spec-author
+    role: spec-author
+    label: Context → specification / design
+    details:
+    - Scenarios, tasks and test plan
+  - id: spec-contract-review
+    role: spec-reviewer
+    label: Contracts
+    details:
+    - Scenarios and
+    - coverage
+  - id: spec-runtime-review
+    role: runtime-reviewer
+    label: Runtime
+    details:
+    - Recovery and
+    - safety
+  - id: design-gate
+    role: lead
+    label: Design acceptance gate
+    details:
+    - Complete reviews + valid evidence
+  - id: design-fix
+    role: spec-author
+    label: Verify findings → author fixes
+    details:
+    - Batched skeptic only when needed
+  - id: blocked
+    role: lead
+    label: BLOCKED / INCOMPLETE
+    details:
+    - Unresolved serious finding
+    - Missing or invalid evidence
+    - Budget / context exhausted
+    - Reconcile before resuming
+  - id: wave-plan
+    role: lead
+    label: Plan bounded coding waves
+    details:
+    - Disjoint files; at most 2 workers
+  - id: implementation
+    role: coder
+    label: Implement + verify slice
+    details:
+    - Owned source and tests only
+    - Integrate; retain exact review source
+  - id: behavior-review
+    role: behavior-reviewer
+    label: Behavior
+    details:
+    - Contracts and
+    - test strength
+  - id: runtime-review
+    role: runtime-reviewer
+    label: Runtime
+    details:
+    - Failure modes
+    - and consumers
+  - id: code-gate
+    role: lead
+    label: Implementation gate
+    details:
+    - Full review of the final bytes
+  - id: code-fix
+    role: coder
+    label: Verify findings → coder fixes
+    details:
+    - Code + tests + design coherence
+  - id: final-verification
+    role: lead
+    label: Final checks + lifecycle
+    details:
+    - Evidence, specs, archive and links
+  - id: pr-ready
+    role: lead
+    label: PR ready for human review
+    details:
+    - Verified revision + remaining risks
+  - id: human-review
+    role: human
+    label: Review the concrete result
+    details:
+    - Approve or request changes
+  - id: merge-authorization
+    role: human
+    label: Merge authorization
+    details:
+    - Use existing explicit authority
+  - id: merge
+    role: lead
+    label: Merge when authorized
+    details:
+    - Current revision + required CI
+  - id: cleanup
+    role: lead
+    label: Record result; assess cleanup
+    details:
+    - Keep dirty / active / resume trees
+  edges:
+  - id: intake-queue
+    from: intake
+    to: queue
+    condition: handoff
+    kind: forward
+  - id: queue-worktree
+    from: queue
+    to: worktree
+    condition: eligible and authorized
+    kind: forward
+    caption:
+    - eligible + authorized
+  - id: worktree-spec
+    from: worktree
+    to: spec-author
+    condition: handoff
+    kind: forward
+  - id: spec-contract
+    from: spec-author
+    to: spec-contract-review
+    condition: handoff
+    kind: forward
+  - id: spec-runtime
+    from: spec-author
+    to: spec-runtime-review
+    condition: handoff
+    kind: forward
+    caption:
+    - two independent lenses
+  - id: contract-design-gate
+    from: spec-contract-review
+    to: design-gate
+    condition: handoff
+    kind: forward
+  - id: runtime-design-gate
+    from: spec-runtime-review
+    to: design-gate
+    condition: handoff
+    kind: forward
+  - id: design-findings
+    from: design-gate
+    to: design-fix
+    condition: confirmed findings
+    kind: fix
+    caption:
+    - confirmed findings
+  - id: design-fix-contract
+    from: design-fix
+    to: spec-contract-review
+    condition: fresh review
+    kind: fix
+  - id: design-fix-runtime
+    from: design-fix
+    to: spec-runtime-review
+    condition: fresh review
+    kind: fix
+    caption:
+    - fresh review after fixes
+  - id: design-blocked
+    from: design-gate
+    to: blocked
+    condition: incomplete or disputed
+    kind: blocked
+  - id: design-plan
+    from: design-gate
+    to: wave-plan
+    condition: clean and complete
+    kind: forward
+    caption:
+    - clean + complete
+  - id: plan-code
+    from: wave-plan
+    to: implementation
+    condition: handoff
+    kind: forward
+  - id: code-behavior
+    from: implementation
+    to: behavior-review
+    condition: handoff
+    kind: forward
+  - id: code-runtime
+    from: implementation
+    to: runtime-review
+    condition: handoff
+    kind: forward
+    caption:
+    - two independent lenses
+  - id: behavior-code-gate
+    from: behavior-review
+    to: code-gate
+    condition: handoff
+    kind: forward
+  - id: runtime-code-gate
+    from: runtime-review
+    to: code-gate
+    condition: handoff
+    kind: forward
+  - id: code-findings
+    from: code-gate
+    to: code-fix
+    condition: confirmed findings
+    kind: fix
+    caption:
+    - confirmed findings
+  - id: code-fix-behavior
+    from: code-fix
+    to: behavior-review
+    condition: fresh review
+    kind: fix
+  - id: code-fix-runtime
+    from: code-fix
+    to: runtime-review
+    condition: fresh review
+    kind: fix
+    caption:
+    - tests → freeze → fresh review
+  - id: code-blocked
+    from: code-gate
+    to: blocked
+    condition: incomplete or disputed
+    kind: blocked
+  - id: code-final
+    from: code-gate
+    to: final-verification
+    condition: clean final bytes
+    kind: forward
+    caption:
+    - clean final bytes
+  - id: final-incomplete
+    from: final-verification
+    to: blocked
+    condition: missing gate
+    kind: blocked
+  - id: final-pr
+    from: final-verification
+    to: pr-ready
+    condition: all gates passed
+    kind: forward
+    caption:
+    - all gates passed
+  - id: lifecycle-review
+    from: final-verification
+    to: code-fix
+    condition: material lifecycle edits
+    kind: fix
+    caption:
+    - 'lifecycle edits:'
+    - fresh affected review
+  - id: pr-human
+    from: pr-ready
+    to: human-review
+    condition: handoff
+    kind: forward
+  - id: human-authorization
+    from: human-review
+    to: merge-authorization
+    condition: accepted
+    kind: forward
+    caption:
+    - accepted
+  - id: authorized-merge
+    from: merge-authorization
+    to: merge
+    condition: explicit merge authority
+    kind: forward
+  - id: human-changes
+    from: human-review
+    to: code-fix
+    condition: changes requested
+    kind: fix
+    caption:
+    - requested changes re-enter
+    - fix → test → independent review
+  - id: merge-cleanup
+    from: merge
+    to: cleanup
+    condition: merge verified
+    kind: forward
+    caption:
+    - merge verified

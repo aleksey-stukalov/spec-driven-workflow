@@ -4,6 +4,10 @@ A reusable development process built on OpenSpec. It connects a bounded task,
 specification, independent review, implementation, verification and handoff.
 Apply it to a whole Git repository or to selected parts of an existing one.
 
+For a visual guide, open the generated [HTML handbook](_agentic_harness/index.html)
+in a browser. It includes the development flow and current role/profile tables.
+The page works offline and is built from the maintained package sources.
+
 For an agent, start with [BOOTSTRAP.md](BOOTSTRAP.md). It explains how to inspect
 a target repository, choose its scope and install this workflow without replacing
 its existing development rules or settings.
@@ -246,6 +250,31 @@ uv sync --locked
 npm --prefix _agentic_harness ci --ignore-scripts
 uv run --locked pytest
 ```
+
+### Build the visual handbook
+
+Edit the Markdown policies and procedures, `plans.yaml`, or the handbook's
+graph and templates. Rebuild the generated page with:
+
+```sh
+uv run --locked python _agentic_harness/tools/build.py
+uv run --locked python _agentic_harness/tools/build.py --check
+```
+
+The builder writes only `_agentic_harness/index.html`. Its `--check` mode is
+read-only and fails if the page is missing or outdated; CI runs that check.
+The page, generator and required inputs are also included in consumer installs.
+Neither build mode changes agent settings or OpenSpec-generated integrations.
+
+For presentation changes, verify the diagram in an isolated offline
+Chrome/Chromium browser, then inspect desktop and narrow screenshots:
+
+```sh
+uv run --locked python _agentic_harness/tools/check_render.py
+```
+
+This browser check verifies the handbook's presentation. It is not automatically
+added to a consumer's product checks.
 
 The tests cover runtime accounting and recovery, project scope, retained source,
 installer behavior and real pinned OpenSpec generation. Native-provider and

@@ -125,6 +125,25 @@ def test_repeat_install_is_noop(distribution, target):
     assert calls == ["npm ci"]
 
 
+def test_handbook_and_its_inputs_share_package_ownership(distribution, target):
+    source, _ = distribution
+    adopt(source, target)
+    manifest = json.loads((target / workflow.MANIFEST).read_text())
+    for relative in ("handbook.yaml", "index.html", "templates/example.md"):
+        path = f"{workflow.HARNESS}/{relative}"
+        assert path in manifest["managed"]
+        assert (target / path).read_bytes() == (source / path).read_bytes()
+
+    # Presentation checks belong to package development. Adoption keeps only
+    # the consumer's declared application checks in its local settings.
+    assert workflow.load_registry(target)["projects"]["app"]["checks"] == [["npm", "test"]]
+    (target / workflow.HARNESS / "index.html").write_text("Local handbook edit.\n")
+    before = files(target)
+    with pytest.raises(workflow.InstallError, match="locally changed"):
+        workflow.installation(target, source=source, update=True)
+    assert files(target) == before
+
+
 def test_scope_can_cover_disjoint_non_python_directories(distribution, target):
     source, _ = distribution
     for directory in ("services/api", "tests/api", "unrelated"):

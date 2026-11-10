@@ -27,6 +27,7 @@ the project binding required when a repository adopts it.
 | `_agentic_harness/package.json` and lockfile | The package retains a local, pinned OpenSpec toolchain. The extraction baseline is `@fission-ai/openspec` version `1.14.3`, requiring Node.js `>=20.19.0`; a tool upgrade is a separate reviewed change. |
 | Harness specifications under `src/gitbob_new_import/openspec/specs/` | Requirements for the reusable workflow belong to this package's specification project. An adopted repository's specifications describe its own product behavior and local integration. |
 | Harness tests and synthetic native transports | Portable regression coverage belongs to the package. Adoption tests must also cover existing files, partial scope, and repeated installation. Passing synthetic checks does not establish paid model quality or provider equivalence. |
+| `_agentic_harness/index.html`, presentation templates and workflow graph | The visual handbook is rebuilt from current package Markdown and `plans.yaml`. Its presentation-only generator retains the responsive styling and SVG layout while omitting importer settings, historical prose and native adapter writes. |
 
 The [policy map](../_agentic_harness/policies/README.md) is the entrypoint for
 shared instructions. The [execution procedure](../_agentic_harness/procedures/execute.md)
@@ -56,10 +57,11 @@ Package-specific routing and rules live in the `sdw-*` entrypoints, project
 configuration, and shared policy documents. Regenerating upstream skills must
 not require manually reconstructing package changes inside their bodies.
 
-The GitBob HTML/SVG handbook and browser-rendering requirements are presentation
-assets of the source project. They are not required checks for every product
-change in an adopted repository. Package verification and the consumer's product
-checks have separate owners.
+The HTML/SVG handbook, generator and presentation inputs are package assets.
+The original builder's importer synchronization and native settings writes were
+not copied. HTML freshness is a package CI check; browser rendering verifies
+presentation changes. Neither becomes a required product check in every adopted
+repository. Package verification and consumer product checks have separate owners.
 
 ## Generated OpenSpec skill audit
 

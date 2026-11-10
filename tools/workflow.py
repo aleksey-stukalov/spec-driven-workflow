@@ -32,8 +32,9 @@ MANIFEST = f"{HARNESS}/install.json"
 REGISTRY = f"{HARNESS}/projects.yaml"
 START = "<!-- spec-driven-workflow:start -->"
 END = "<!-- spec-driven-workflow:end -->"
-PAYLOAD_DIRECTORIES = ("tools", "policies", "procedures", "roles")
-PAYLOAD_FILES = ("README.md", ".gitignore", "plans.yaml", "package.json", "package-lock.json", "pyproject.toml", "uv.lock")
+PAYLOAD_DIRECTORIES = ("tools", "policies", "procedures", "roles", "templates")
+PAYLOAD_FILES = ("README.md", ".gitignore", "plans.yaml", "handbook.yaml", "index.html",
+                 "package.json", "package-lock.json", "pyproject.toml", "uv.lock")
 AGENTS = {"codex", "claude"}
 
 

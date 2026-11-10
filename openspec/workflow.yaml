@@ -3,6 +3,7 @@ schema_version: 1
 code_roots: [.]
 checks:
   - [uv, run, --locked, pytest]
+  - [uv, run, --locked, python, _agentic_harness/tools/build.py, --check]
   - [node, _agentic_harness/tools/openspec.mjs, validate, --all, --strict, --no-interactive]
 environment:
   lockfiles: [uv.lock, _agentic_harness/package-lock.json]
