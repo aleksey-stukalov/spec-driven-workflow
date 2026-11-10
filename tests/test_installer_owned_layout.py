@@ -601,3 +601,44 @@ def test_public_project_and_doctor_cli_keep_settings_context(distribution, targe
         diagnostic = json.loads(result.stderr)
         assert diagnostic["status"] == status
         assert relative in diagnostic[field] and cause in diagnostic[field]
+
+
+@pytest.mark.parametrize("home", [".", "services/api"])
+@pytest.mark.parametrize("location", ["top", "nested"])
+@pytest.mark.parametrize("key,kind", [("? [non, string, key]", "list"), ("? {non: string}", "dict")])
+def test_public_unhashable_settings_keys_preserve_runtime_and_doctor_diagnostics(distribution, target, home, location, key, kind):
+    import projects
+    import shutil
+    import subprocess
+    import sys
+    source, _ = distribution
+    (target / home).mkdir(parents=True, exist_ok=True)
+    adopt(source, target, spec_root=home)
+    assert projects.resolve("app", target)["workflow"] == workflow.workflow_name(home)
+    assert workflow.doctor(target)["status"] == "valid"
+    for name in ("harness.py", "projects.py", "dependency_maps.py"):
+        shutil.copyfile(workflow.SOURCE / "agentic_harness/tools" / name,
+                        target / "agentic_harness/tools" / name)
+    authority = workflow.workflow_name(home)
+    malformed = key + "\n: invalid\n"
+    if location == "nested":
+        malformed = "schema_version: 1\ncode_roots: [.]\nchecks:\n  " + key + "\n  : invalid\n"
+    (target / authority).write_text(malformed)
+    runtime_cause = f"unhashable type: '{kind}'"
+    with pytest.raises(ValueError) as selection_error:
+        projects.resolve("app", target)
+    assert authority in str(selection_error.value) and runtime_cause in str(selection_error.value)
+    assert isinstance(selection_error.value.__cause__.__cause__, TypeError)
+    doctor_cause = "configuration has a non-string or duplicate key"
+    with pytest.raises(workflow.InstallError) as doctor_error:
+        workflow.doctor(target)
+    assert authority in str(doctor_error.value) and doctor_cause in str(doctor_error.value)
+    for command, status, field, cause in (
+        ([sys.executable, "-B", str(target / "agentic_harness/tools/harness.py"), "project", "--at", home], "blocked", "reason", runtime_cause),
+        ([sys.executable, "-B", str(workflow.SOURCE / "tools/workflow.py"), "doctor", "--target", str(target)], "error", "message", doctor_cause),
+    ):
+        result = subprocess.run(command, cwd=target, capture_output=True, text=True)
+        assert result.returncode == 1
+        diagnostic = json.loads(result.stderr)
+        assert diagnostic["status"] == status
+        assert authority in diagnostic[field] and cause in diagnostic[field]

@@ -163,7 +163,12 @@ def _workflow(root: Path, project_root: str, schema_version: int = 2) -> dict:
     if not path.is_file():
         raise ValueError(f"invalid workflow configuration: {path.relative_to(root)}")
     try:
-        data = _read_yaml(path)
+        try:
+            data = _read_yaml(path)
+        except TypeError as exc:
+            # Unhashable YAML keys fail in the shared loader's constructor.
+            # Translate only decoding failures into this settings boundary.
+            raise ValueError(str(exc)) from exc
         required = {"schema_version", "code_roots", "checks"}
         optional = {"environment", "evidence_exclude"}
         if (not isinstance(data, dict) or not required <= set(data)

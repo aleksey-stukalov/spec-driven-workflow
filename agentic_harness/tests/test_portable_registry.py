@@ -555,3 +555,76 @@ def test_invalid_legacy_companion_is_not_attributed_to_inline_settings(tmp_path,
         projects.resolve('service', root)
     assert authority in str(error.value) and 'checks must be argv arrays' in str(error.value)
     assert projects.INDEX_PATH not in str(error.value)
+
+
+@pytest.mark.parametrize('home', ['.', 'services/api'])
+@pytest.mark.parametrize('location', ['top', 'nested'])
+@pytest.mark.parametrize('key,kind', [('? [non, string, key]', 'list'), ('? {non: string}', 'dict')])
+def test_unhashable_settings_keys_keep_authority_and_original_decoding_cause(tmp_path, home, location, key, kind):
+    root = tmp_path / 'repo'
+    data = {'schema_version': 1, 'projects': {'service': entry(root, home)}}
+    save_registry(root, data)
+    harness_settings(root, data)
+    authority = projects.workflow_path(home)
+    malformed = key + '\n: invalid\n'
+    if location == 'nested':
+        malformed = 'schema_version: 1\ncode_roots: [.]\nchecks:\n  ' + key + '\n  : invalid\n'
+    (root / authority).write_text(malformed)
+    with pytest.raises(ValueError) as error:
+        projects.resolve('service', root)
+    cause = f"unhashable type: '{kind}'"
+    assert type(error.value) is ValueError
+    assert authority in str(error.value) and cause in str(error.value)
+    assert isinstance(error.value.__cause__, ValueError)
+    assert str(error.value.__cause__) == cause
+    assert isinstance(error.value.__cause__.__cause__, TypeError)
+    assert str(error.value.__cause__.__cause__) == cause
+
+
+@pytest.mark.parametrize('home', ['.', 'services/api'])
+@pytest.mark.parametrize('version', [1, 2])
+@pytest.mark.parametrize('location', ['top', 'nested'])
+@pytest.mark.parametrize('key,kind', [('? [non, string, key]', 'list'), ('? {non: string}', 'dict')])
+def test_unhashable_legacy_companion_keys_name_the_actual_file(tmp_path, home, version, location, key, kind):
+    root = tmp_path / 'repo'
+    data = {'schema_version': 1, 'projects': {'service': entry(root, home)}}
+    if version == 1:
+        save_registry(root, data)
+    else:
+        local_settings(root, data)
+    authority = projects.workflow_path(home, 2)
+    malformed = key + '\n: invalid\n'
+    if location == 'nested':
+        malformed = 'schema_version: 1\ncode_roots: [.]\nchecks:\n  ' + key + '\n  : invalid\n'
+    write(root / authority, malformed)
+    with pytest.raises(ValueError) as error:
+        projects.resolve('service', root)
+    assert authority in str(error.value) and f"unhashable type: '{kind}'" in str(error.value)
+    assert projects.workflow_path(home) not in str(error.value)
+    assert projects.INDEX_PATH not in str(error.value)
+    assert isinstance(error.value.__cause__.__cause__, TypeError)
+
+
+def test_settings_loader_does_not_translate_unrelated_type_errors(registered, monkeypatch):
+    root, data = registered
+    local_settings(root, data)
+    failure = TypeError('unrelated document processing failure')
+    class BrokenMapping(dict):
+        def items(self):
+            raise failure
+    decoded = BrokenMapping(schema_version=1, code_roots=['.'], checks=[['true']])
+    monkeypatch.setattr(projects, '_read_yaml', lambda path: decoded)
+    with pytest.raises(TypeError) as error:
+        projects._workflow(root, 'packages/service', 2)
+    assert error.value is failure
+    assert error.value.__cause__ is None
+
+
+def test_shared_yaml_loader_keeps_native_and_index_key_semantics(tmp_path):
+    for name in ('config.yaml', 'projects.yaml'):
+        path = tmp_path / name
+        path.write_text('1: permitted by shared loader\n')
+        assert projects._read_yaml(path) == {1: 'permitted by shared loader'}
+        path.write_text('? [non, string, key]\n: invalid\n')
+        with pytest.raises(TypeError, match="unhashable type: 'list'"):
+            projects._read_yaml(path)
