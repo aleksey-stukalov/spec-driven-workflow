@@ -117,6 +117,10 @@ def test_upstream_generation_and_update_preserve_local_content(tmp_path, cli_env
         ),
         "openspec/specs/payments/spec.md": "# Payments\n\nProduct-owned specification.\n",
         "openspec/changes/existing-change/notes.md": "Keep this in-progress design.\n",
+        "openspec/workflow.yaml": (
+            "# Application-owned workflow settings\nschema_version: 1\n"
+            "code_roots: [services/api, tests/api]\nchecks: [[npm, test]]\n"
+        ),
         ".agents/skills/sdw-project/SKILL.md": "Workflow-owned routing instructions.\n",
         ".claude/skills/sdw-project/SKILL.md": "Workflow-owned routing instructions.\n",
         ".agents/skills/product-helper/SKILL.md": "Local product skill.\n",
@@ -167,7 +171,6 @@ def test_installed_workflow_survives_upstream_update(tmp_path, cli_env, monkeypa
     config_bytes, spec_bytes = config.read_bytes(), product_spec.read_bytes()
     result = workflow.installation(
         target,
-        project="product",
         spec_root=".",
         scopes=["."],
         checks=[["python", "-c", "print('application check')"]],
@@ -175,6 +178,8 @@ def test_installed_workflow_survives_upstream_update(tmp_path, cli_env, monkeypa
         source=ROOT,
     )
     assert result["status"] == "installed"
+    local_settings = target / "openspec/workflow.yaml"
+    settings_bytes = local_settings.read_bytes()
     assert global_prompt.read_text() == "Developer-owned legacy prompt.\n"
     upstream_before = upstream_files(target)
     manifest = json.loads((target / "_agentic_harness/install.json").read_text())
@@ -190,5 +195,32 @@ def test_installed_workflow_survives_upstream_update(tmp_path, cli_env, monkeypa
     assert {name: (target / name).read_bytes() for name in managed_before} == managed_before
     assert config.read_bytes() == config_bytes
     assert product_spec.read_bytes() == spec_bytes
+    assert local_settings.read_bytes() == settings_bytes
     assert (target / "AGENTS.md").read_text().startswith("# Local instructions\n\nPreserve the product's conventions.\n")
+    assert workflow.doctor(target)["status"] == "valid"
+
+
+def test_folder_installation_uses_native_directory_discovery_without_a_name(tmp_path, cli_env):
+    import workflow
+
+    target = tmp_path / "consumer"
+    project = target / "services/api"
+    source = project / "src/handlers"
+    source.mkdir(parents=True)
+    (target / "tests/api").mkdir(parents=True)
+    subprocess.run(["git", "init", str(target)], check=True, capture_output=True)
+    result = workflow.installation(
+        target, spec_root="services/api", scopes=["services/api", "tests/api"],
+        checks=[["npm", "--prefix", "services/api", "test"]], agents=["codex"], source=ROOT,
+    )
+    assert result["status"] == "installed"
+    assert not (target / "openspec").exists()
+    companion = project / "openspec/workflow.yaml"
+    assert companion.is_file()
+    launcher = target / "_agentic_harness/tools/openspec.mjs"
+    context = json.loads(run_cli(source, cli_env, "context", "--json", launcher=launcher).stdout)
+    assert Path(context["root"]["path"]).resolve() == project.resolve()
+    run_cli(source, cli_env, "new", "change", "describe-api-behavior", launcher=launcher)
+    assert (project / "openspec/changes/describe-api-behavior/.openspec.yaml").is_file()
+    assert workflow.installation(target, spec_root="services/api", source=ROOT)["changed"] == []
     assert workflow.doctor(target)["status"] == "valid"

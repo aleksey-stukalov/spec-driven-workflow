@@ -5,8 +5,10 @@ import shutil
 import pytest
 import tomlkit
 import yaml
+from markdown_it import MarkdownIt
 
 import adapters
+import projects
 
 
 REGISTRY = {"schema_version": 1, "projects": {
@@ -34,7 +36,7 @@ def test_only_selected_agent_outputs():
 
 
 def test_checked_in_integrations_match_the_validated_catalog():
-    registry = yaml.safe_load((adapters.SOURCE / "_agentic_harness/projects.yaml").read_text())
+    registry = {"schema_version": 1, "projects": projects.registry(adapters.SOURCE)}
     for path, content in adapters.outputs(registry, ["codex", "claude"]).items():
         assert (adapters.SOURCE / path).read_text() == content, path
 
@@ -52,6 +54,16 @@ def test_entrypoint_names_each_domain_without_global_application():
     body = adapters.entrypoint(REGISTRY)
     assert "`apps/api`" in body and "`tests/api`" in body and "`apps/site`" in body
     assert "For work outside" in body
+
+
+def test_entrypoint_settings_link_supports_spaces_in_the_project_path():
+    registry = {"schema_version": 1, "projects": {
+        "api": {"root": "services/my api", "code_roots": ["services/my api"]},
+    }}
+    parsed = MarkdownIt().parse(adapters.entrypoint(registry))
+    links = [child.attrGet("href") for token in parsed for child in token.children or []
+             if child.type == "link_open"]
+    assert "services/my%20api/openspec/workflow.yaml" in links
 
 
 def test_invalid_catalog_rejected_before_rendering(tmp_path, monkeypatch):

@@ -12,7 +12,9 @@ consumer project's configuration and specifications.
 - Keep whole-repository and selected-folder installations working. Do not assume
   the application uses Python, uv, GitBob or a particular source layout.
 - The runtime's dependencies are isolated under `_agentic_harness`. Consumer
-  checks and dependency locks come from project registration.
+  checks, source scope and dependency locks come from `openspec/workflow.yaml`.
+  Native OpenSpec context and rules remain in its own configuration. Preserve
+  internal registration IDs when migrating settings or routing by directory.
 - Use separate file ownership for concurrent edits. Retain the accounting,
   recovery, original-evidence and independent-review contracts during refactors.
 - Run `uv run --locked pytest` and relevant pinned OpenSpec validation. Test
@@ -21,5 +23,5 @@ consumer project's configuration and specifications.
   accurate and leave unfinished tasks unchecked.
 - Do not publish, migrate GitBob or merge without the applicable user authority.
 
-The initial extraction is local work. Remote repository creation and GitBob's
-adoption remain separate actions.
+GitBob's adoption remains separate work. Reuse existing publication authority
+only within its scope and verify every reported remote outcome.

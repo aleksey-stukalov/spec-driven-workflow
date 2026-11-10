@@ -9,6 +9,34 @@ from pathlib import Path
 import projects
 
 
+def _selection(arguments, *, forward=False):
+    """Consume only harness selectors, leaving upstream arguments untouched."""
+    remaining = list(arguments)
+    project = None
+    at = None
+    if remaining and not remaining[0].startswith('-'):
+        project = remaining.pop(0)
+    if remaining and (remaining[0] == '--at' or remaining[0].startswith('--at=')):
+        option = remaining.pop(0)
+        if option == '--at':
+            if not remaining or remaining[0].startswith('-'):
+                raise ValueError('--at requires a repository-relative directory')
+            at = remaining.pop(0)
+        else:
+            at = option.removeprefix('--at=')
+        if not at:
+            raise ValueError('--at requires a repository-relative directory')
+        if project is not None:
+            raise ValueError('select --at or a legacy project ID, not both')
+        if remaining and (remaining[0] == '--at' or remaining[0].startswith('--at=')):
+            raise ValueError('select one OpenSpec directory with --at')
+    if remaining[:1] == ['--']:
+        remaining = remaining[1:]
+    if not forward and remaining:
+        raise ValueError('project accepts --at DIRECTORY or one legacy project ID')
+    return project, ({'at': at} if at is not None else {}), remaining
+
+
 def main(argv=None):
     raw_arguments = list(sys.argv[1:] if argv is None else argv)
     parser = argparse.ArgumentParser(description=__doc__)
@@ -20,18 +48,14 @@ def main(argv=None):
             import intake
             print(json.dumps(intake.validate_intake(json.loads(Path(args.arguments[0]).read_text()), projects.ROOT), indent=2))
         elif args.command == 'project':
-            if len(args.arguments) > 1:
-                raise ValueError('project accepts at most one registered project ID')
-            print(json.dumps(projects.resolve(args.arguments[0] if args.arguments else None), indent=2))
+            project, selection, _ = _selection(args.arguments)
+            print(json.dumps(projects.resolve(project, **selection), indent=2))
         elif args.command == 'openspec':
             # argparse removes the separator before REMAINDER. Keep the original
             # spelling so a sole project's `-- list` is not parsed as project=list.
             forwarded = raw_arguments[raw_arguments.index('openspec') + 1:]
-            project = forwarded[0] if forwarded and not forwarded[0].startswith('-') else None
-            command = forwarded[1:] if project is not None else forwarded
-            if command[:1] == ['--']:
-                command = command[1:]
-            return projects.openspec(project, command)
+            project, selection, command = _selection(forwarded, forward=True)
+            return projects.openspec(project, command, **selection)
         elif args.command == 'plans':
             import plan_runtime
             return plan_runtime.main(args.arguments)

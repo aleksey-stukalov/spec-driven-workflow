@@ -47,7 +47,7 @@ def _private(rel, exclusions=()):
 
 def _exclusions(root, project):
     """Dependency reads respect private paths declared by every registered domain."""
-    if not (root / '_agentic_harness/projects.yaml').exists():
+    if not os.path.lexists(root / '_agentic_harness/projects.yaml'):
         return []
     registered = projects.registry(root)
     if project not in registered:
@@ -61,20 +61,61 @@ def _base_exclusions(repository, base):
     listed = subprocess.check_output(['git', '--git-dir', str(repository), 'ls-tree', '-z', base, '--', config])
     if not listed:
         return []
-    _, content = _tree(repository, base, config)
-    try:
-        registered = yaml.load(content, Loader=projects.UniqueLoader)
-    except yaml.YAMLError as exc:
-        raise ValueError(f'invalid pinned-base privacy policy: {exc}') from exc
-    if (not isinstance(registered, dict) or registered.get('schema_version') != 1
-            or not isinstance(registered.get('projects'), dict)):
+
+    def read_policy(relative):
+        # Both the index and its referenced files belong to this immutable
+        # commit. The live checkout may have moved or removed the exclusion.
+        try:
+            _, content = _tree(repository, base, relative)
+            value = yaml.load(content, Loader=projects.UniqueLoader)
+        except (ValueError, UnicodeError, yaml.YAMLError) as exc:
+            raise ValueError(f'invalid pinned-base privacy policy: {relative}: {exc}') from exc
+        if not isinstance(value, dict):
+            raise ValueError(f'invalid pinned-base privacy policy: {relative}')
+        return value
+
+    registered = read_policy(config)
+    if (set(registered) != {'schema_version', 'projects'}
+            or type(registered['schema_version']) is not int
+            or registered['schema_version'] not in (1, 2)
+            or not isinstance(registered['projects'], dict)):
         raise ValueError('invalid pinned-base project registration')
     exclusions = set()
     for selected in registered['projects'].values():
         if not isinstance(selected, dict):
             raise ValueError('invalid pinned-base project registration')
+        if registered['schema_version'] == 2:
+            if set(selected) != {'root'}:
+                raise ValueError('invalid pinned-base project index')
+            project_root = selected['root']
+            scope_contains(project_root, project_root)  # No reads from the live filesystem.
+            companion = (Path(project_root) / 'openspec/workflow.yaml').as_posix()
+            selected = read_policy(companion)
+            required = {'schema_version', 'code_roots', 'checks'}
+            optional = {'environment', 'evidence_exclude'}
+            if (not required <= set(selected) or set(selected) - required - optional
+                    or type(selected.get('schema_version')) is not int
+                    or selected['schema_version'] != 1
+                    or not isinstance(selected['code_roots'], list) or not selected['code_roots']):
+                raise ValueError(f'invalid pinned-base workflow configuration: {companion}')
+            for area in selected['code_roots']:
+                scope_contains(area, area)
+            if len(set(selected['code_roots'])) != len(selected['code_roots']):
+                raise ValueError('invalid pinned-base code roots')
+            projects._argv_commands(selected['checks'], 'pinned-base checks')
+            environment = selected.get('environment', {})
+            if not isinstance(environment, dict) or set(environment) - {'lockfiles', 'prepare'}:
+                raise ValueError('invalid pinned-base environment')
+            locks = environment.get('lockfiles', [])
+            if (not isinstance(locks, list) or any(not isinstance(lock, str) or lock == '.' for lock in locks)
+                    or len(set(locks)) != len(locks)):
+                raise ValueError('invalid pinned-base environment lockfiles')
+            for lock in locks:
+                scope_contains(lock, lock)
+            projects._argv_commands(environment.get('prepare', []), 'pinned-base preparation', empty=True)
         paths = selected.get('evidence_exclude', [])
-        if not isinstance(paths, list):
+        if (not isinstance(paths, list) or any(not isinstance(path, str) for path in paths)
+                or len(set(paths)) != len(paths)):
             raise ValueError('invalid pinned-base evidence exclusions')
         for path in paths:
             scope_contains(path, path)  # Validate lexically without consulting the changed tree.

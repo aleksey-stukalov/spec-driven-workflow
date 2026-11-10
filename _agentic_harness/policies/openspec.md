@@ -6,11 +6,17 @@ selected project's context and instructions before using a generated skill.
 
 ## Select one authority
 
-The registered `root` is the project directory containing `openspec/`. It may be
-the repository root or another directory; it is independent of `code_roots`.
-Invoke the package wrapper with an explicit project when several are registered.
-The wrapper runs the pinned CLI from the registered directory. A current working
-directory or skill name alone does not establish the intended project.
+Choose the directory containing the intended `openspec/`. From the Git worktree
+root, use `harness.py project --at PATH`, where `PATH` is repository-relative and
+`.` selects the root. The source and test areas in `openspec/workflow.yaml` may
+be outside this directory.
+
+Without a selector, the wrapper finds the nearest adopted OpenSpec home from
+the current directory. If no local home is found, it can select the sole
+configured project. A nearer unadopted OpenSpec home or an ambiguous choice
+stops selection. Review the returned home and source scope against the request.
+The wrapper runs the pinned CLI from that home. Preserve its returned internal
+`id` in the run's requests and evidence, even if the working directory changes.
 
 Reuse an existing OpenSpec home through deliberate adoption. Do not initialize a
 second home to evade an existing project's rules, history or unfinished work.
@@ -18,9 +24,17 @@ Never silently replace its config, schemas, specifications or change archive.
 Preserve the existing `config.yaml` or `config.yml`; two config files are
 ambiguous. This version requires non-overlapping registered project roots.
 
+Use native configuration for schema selection, context, artifact rules and
+supported operation guidance. Use the adjacent `workflow.yaml` for this
+package's executable checks, source scope, preparation commands, lockfiles and
+evidence exclusions. The installer maintains the internal index; these settings
+have one project-owned source beside OpenSpec after migration.
+
 OpenSpec-generated skills remain managed by OpenSpec. Keep package behavior in
 the `sdw-*` entry points and these policies. Editing generated skill bodies is
 not a supported customization mechanism; an OpenSpec update may replace them.
+Native `/opsx` operations do not automatically invoke this package's independent
+review or final acceptance. Use the `sdw-*` entrypoints for those procedures.
 
 ## Artifacts and evidence
 
@@ -34,6 +48,14 @@ Keep `openspec/specs/` truthful about implemented and verified behavior. Use
 added requirements for new capabilities and modified or removed requirements
 only against an existing baseline. Do not promote proposed behavior early.
 Follow the pinned OpenSpec schema instead of inventing structural headings.
+
+The built-in `spec-driven` schema already provides the artifacts this runtime
+uses. Existing custom schemas are preserved, but the runtime requires
+`proposal.md`, `design.md`, `tasks.md` and capability deltas at
+`specs/<capability>/spec.md` within each change. A schema with different outputs
+needs a deliberate compatibility change before this runtime can execute it.
+Adding a review document to a schema does not establish reviewer independence
+or acceptance of the final source; those checks belong to the runtime.
 
 For maintenance without capability changes, use the supported `skip_specs: true`
 change metadata and explicit acceptance tasks. Do not fabricate a product

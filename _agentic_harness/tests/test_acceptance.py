@@ -12,9 +12,10 @@ import evidence
 import lifecycle
 import plan_runtime
 from test_runtime_integration import repository, git, reference, CHANGE
+from test_portable_evidence import use_companion
 
 
-def accepted_fixture(repository, tmp_path, *, omission=None, project_root='project', skip_specs=False, invalid=None, config_name='config.yaml'):
+def accepted_fixture(repository, tmp_path, *, omission=None, project_root='project', skip_specs=False, invalid=None, config_name='config.yaml', companion=False):
     root = repository
     spec_home = Path(project_root) / 'openspec'
     if project_root == '.':
@@ -25,6 +26,8 @@ def accepted_fixture(repository, tmp_path, *, omission=None, project_root='proje
         registration.write_text(yaml.safe_dump(data))
     if config_name != 'config.yaml':
         (root / spec_home / 'config.yaml').rename(root / spec_home / config_name)
+    if companion:
+        use_companion(root)
     active = root / spec_home / 'changes' / CHANGE
     contract = '### Requirement: Preserve exact sources\nSHALL retain bytes.\n\n#### Scenario: stable-source\n- **WHEN** captured\n- **THEN** retained\n'
     if skip_specs:
@@ -33,7 +36,7 @@ def accepted_fixture(repository, tmp_path, *, omission=None, project_root='proje
         baseline = root / spec_home / 'specs/existing/spec.md'
         baseline.parent.mkdir(parents=True)
         baseline.write_text(contract)
-    if skip_specs or project_root == '.' or config_name != 'config.yaml':
+    if skip_specs or project_root == '.' or config_name != 'config.yaml' or companion:
         git(root, 'add', '.')
         git(root, 'commit', '-m', 'Synthetic project registration and existing behavior')
     archive = active.parent / 'archive' / ('2026-11-09-' + CHANGE)
@@ -65,8 +68,10 @@ def accepted_fixture(repository, tmp_path, *, omission=None, project_root='proje
     design = evidence.materialize(root, design_path, design_scope, project='synthetic', change=CHANGE, run_id='r', base=head, policy='plans-v1')
     changed = evidence.changed_scope(root, head)
     scope = sorted(set(changed['input_scope']) | {'source.py', 'contract.md', '_agentic_harness/projects.yaml',
-                                                (spec_home / 'queue.yaml').as_posix(), (spec_home / config_name).as_posix()})
-    omitted = {'archive':contract_path, 'registry':'_agentic_harness/projects.yaml', 'changed-code':'source.py'}.get(omission)
+                                                (spec_home / 'queue.yaml').as_posix(), (spec_home / config_name).as_posix()}
+                   | ({(spec_home / 'workflow.yaml').as_posix()} if companion else set()))
+    omitted = {'archive':contract_path, 'registry':'_agentic_harness/projects.yaml', 'changed-code':'source.py',
+               'workflow-config': (spec_home / 'workflow.yaml').as_posix()}.get(omission)
     if omitted: scope.remove(omitted)
     deleted = [] if omission == 'deleted' else changed['deleted_scope']
     implementation = evidence.materialize(root, implementation_path, scope, deleted_scope=deleted, project='synthetic', change=CHANGE, run_id='r', base=head, policy='plans-v1')
@@ -172,6 +177,23 @@ def test_no_behavior_change_retains_final_review_and_metadata_binding(repository
     _, _, request, *_ = accepted_fixture(repository, tmp_path, project_root='.', skip_specs=True, omission=omission)
     with pytest.raises(ValueError, match='scope omits|acceptance omits'):
         lifecycle.acceptance_gate(request)
+
+
+@pytest.mark.parametrize('project_root', ['.', 'project'])
+@pytest.mark.parametrize('skip_specs', [False, True])
+@pytest.mark.parametrize('omission', [None, 'workflow-config'])
+def test_final_review_requires_unchanged_companion_check_authority(repository, tmp_path, project_root, skip_specs, omission):
+    root, _, request, head, *_ = accepted_fixture(
+        repository, tmp_path, project_root=project_root, skip_specs=skip_specs,
+        companion=True, omission=omission,
+    )
+    companion = (Path(project_root) / 'openspec/workflow.yaml').as_posix()
+    assert companion not in evidence.changed_scope(root, head)['input_scope']
+    if omission:
+        with pytest.raises(ValueError, match='scope omits.*check authority'):
+            lifecycle.acceptance_gate(request)
+    else:
+        assert lifecycle.acceptance_gate(request)['status'] == 'verified'
 
 
 def test_remote_operation_marker_is_workflow_specific():

@@ -1,3 +1,5 @@
 queue:
   - change: 26-11-10-001-extract-portable-workflow
     depends_on: []
+  - change: 26-11-10-002-openspec-local-configuration
+    depends_on: [26-11-10-001-extract-portable-workflow]

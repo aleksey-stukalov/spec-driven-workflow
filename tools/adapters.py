@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from urllib.parse import quote
 
 import tomlkit
 import yaml
@@ -18,18 +19,18 @@ import yaml
 SOURCE = Path(__file__).resolve().parents[1]
 SKILLS = {
     "sdw-run": (
-        "Run one authorized spec-driven development change in a registered project, "
+        "Run one authorized spec-driven development change in an adopted OpenSpec project, "
         "including specification, implementation, independent review and handoff.",
         "pipeline.md",
     ),
     "sdw-harden": (
         "Prepare or independently review the specification and design of a selected "
-        "change using the registered workflow. Use for design hardening before implementation.",
+        "change using this workflow. Use for design hardening before implementation.",
         "harden-change.md",
     ),
     "sdw-review": (
         "Review an implementation against its selected specification, tests and runtime "
-        "risks using the registered workflow's independent review procedure.",
+        "risks using this workflow's independent review procedure.",
         "review-impl.md",
     ),
 }
@@ -49,27 +50,34 @@ def entrypoint(registry: dict) -> str:
     """The installer places this body in its marked, narrowly owned block."""
     projects = _projects(registry)
     rows = []
-    for name, project in sorted(projects.items()):
+    for project in sorted(projects.values(), key=lambda item: item["root"]):
         roots = ", ".join(f"`{p}`" for p in project["code_roots"])
-        rows.append(f"- `{name}`: code scope {roots}; OpenSpec project root `{project['root']}`.")
+        settings = (Path(project["root"]) / "openspec/workflow.yaml").as_posix()
+        rows.append(
+            f"- OpenSpec root `{project['root']}`: code scope {roots}; "
+            f"settings [openspec/workflow.yaml]({quote(settings, safe='/')})."
+        )
     return (
         "## Spec-driven workflow\n\n"
-        "Apply this workflow to changes in the registered scopes below. For work outside "
-        "those scopes, keep the project's existing process. Registration is not permission "
+        "Apply this workflow to changes in the adopted scopes below. For work outside "
+        "those scopes, keep the project's existing process. Adoption is not permission "
         "to modify every listed file. Read the applicable existing repository instructions.\n\n"
         + "\n".join(rows)
         + "\n\nBefore a scoped change, read "
         "[`_agentic_harness/policies/README.md`](_agentic_harness/policies/README.md) "
-        "and select the project from "
-        "[`_agentic_harness/projects.yaml`](_agentic_harness/projects.yaml). "
+        "and select the intended OpenSpec directory. Read its native `config.yaml` "
+        "(or existing `config.yml`) and workflow settings above. "
         "Resolve these links from the Git worktree root. These are required reads, "
         "not automatic imports. Use `sdw-run`, `sdw-harden`, or `sdw-review` for the "
         "applicable phase. Resolve cross-scope work explicitly before making changes.\n\n"
         "OpenSpec's generated skills remain unchanged. Route its commands through "
         "`uv run --locked --project _agentic_harness python "
-        "_agentic_harness/tools/harness.py openspec PROJECT -- COMMAND`; "
-        "the wrapper selects the registered project and pinned CLI. "
-        "Do not infer the specification root from the shell's working directory.\n"
+        "_agentic_harness/tools/harness.py openspec --at SPEC_ROOT -- COMMAND` "
+        "from the worktree root. `SPEC_ROOT` is the repository-relative directory "
+        "containing the intended `openspec/`, such as `.` or `services/api`. "
+        "The wrapper reports the selected root and pins the CLI. "
+        "Use the `id` returned by `harness.py project --at SPEC_ROOT` in runtime "
+        "requests and retain it throughout the run; no installation name needs to be invented.\n"
     )
 
 
@@ -86,19 +94,27 @@ def _skill(path: str, name: str, description: str, procedure: str) -> str:
         "Resolve the Git worktree root and read applicable repository instructions. "
         f"Read the [policy map]({reading}), [execution procedure]({execution}) "
         f"and [phase procedure]({phase}). Read the links explicitly.\n\n"
-        "Select the registered project using the requested change and file scope. "
+        "Select the OpenSpec directory that owns the requested change and file scope. "
         "Run from the worktree root:\n\n"
         "```sh\nuv run --locked --project _agentic_harness python "
-        "_agentic_harness/tools/harness.py project PROJECT\n```\n\n"
-        "The sole registered project can be selected by omitting PROJECT. "
-        "When several projects could apply, resolve the scope before proceeding. "
-        "The registry's project root is the OpenSpec authority; code roots can be elsewhere.\n\n"
+        "_agentic_harness/tools/harness.py project --at SPEC_ROOT\n```\n\n"
+        "Replace SPEC_ROOT with the repository-relative directory containing the "
+        "intended `openspec/`; use `.` for the repository root. Read its native "
+        "`config.yaml` (or existing `config.yml`) and `workflow.yaml`. The latter "
+        "holds source scope, checks and environment settings; all its paths are "
+        "relative to the Git worktree root. Source and test folders can be elsewhere. "
+        "Use the returned `id` in machine requests and keep that binding for the run.\n\n"
+        "Without `--at`, the command selects the nearest adopted OpenSpec root from "
+        "the current directory, or the sole configured project when no local home "
+        "is found. A nearer unadopted home or ambiguous selection stops the command. "
+        "Resolve the requested scope before choosing another directory.\n\n"
         "Use the pinned CLI in that selected project through:\n\n"
         "```sh\nuv run --locked --project _agentic_harness python "
-        "_agentic_harness/tools/harness.py openspec PROJECT -- list --json\n```\n\n"
+        "_agentic_harness/tools/harness.py openspec --at SPEC_ROOT -- list --json\n```\n\n"
         "Read OpenSpec's returned context and instructions. When following an unchanged "
         "upstream skill, route each `openspec` command through this wrapper and preserve "
         "its arguments. Do not edit or shadow the generated `openspec-*` skills. "
+        "Native OpenSpec commands alone do not run this workflow's acceptance gates. "
         "A nested OpenSpec root and these instructions do not create a filesystem sandbox.\n\n"
         "Use the selected plan's durable ledger and dispatcher for counted assignments. "
         "Verify required native capabilities before launch; retain unavailable metadata "

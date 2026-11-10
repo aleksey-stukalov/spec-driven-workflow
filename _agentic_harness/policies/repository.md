@@ -7,11 +7,20 @@ behavior or claiming a capability exists.
 
 ## Scope and ownership
 
-Select a project from `_agentic_harness/projects.yaml`. Its `root` identifies the
-OpenSpec project directory; its `code_roots` identify adopted source areas.
-Neither value is a filesystem sandbox. A project may cover several directories.
+Select the OpenSpec directory that owns the requested work. Its
+`openspec/workflow.yaml` lists adopted source areas in `code_roots`, while
+`openspec/config.yaml` (or the existing `config.yml`) holds native project
+context and rules. Paths in workflow settings are relative to the Git worktree
+root. One OpenSpec home may cover several source and test directories.
+These boundaries are not a filesystem sandbox.
 Do not infer write permission from a dependency, a shared parent directory or
 the ability to read a file.
+
+Use the selected `id` returned by `harness.py project` in intake, coordination,
+dispatch and evidence records. The internal `projects.yaml` index retains that
+identity across updates. Directory selection happens before a run; a later
+working-directory change must not rebind an admitted request. Legacy inline
+settings remain readable until the installer migrates them in a reviewed update.
 
 Each task has a bounded intake scope. Each writer owns exact files within that
 scope and the registered areas: adopted code roots and the selected project's
@@ -26,9 +35,10 @@ ownership, dirty state, active assignments and retained dependencies.
 
 ## Project checks and environments
 
-The project registration supplies required checks as argument arrays, not shell
-fragments. Use the project's documented setup and declared lockfiles. Do not
-assume that every target uses Python, uv, npm, or a particular application test
+`openspec/workflow.yaml` supplies required checks as argument arrays, not shell
+fragments. Checks run from the Git worktree root. Use the project's documented
+setup and declared lockfiles. Do not assume that every target uses Python, uv,
+npm, or a particular application test
 command because the workflow itself uses Python and Node.
 
 Prepare the assigned worktree without changing the project's intended dependency
@@ -47,8 +57,9 @@ development unless a target explicitly registers them.
 
 Keep credentials, private exports and operational state out of committed
 examples and retained review source. Use synthetic fixtures where practical.
-Register project-specific evidence exclusions; do not assume that ordinary
-directories named `data`, `runtime`, `inputs` or `out` contain private material
+Declare project-specific evidence exclusions in `openspec/workflow.yaml`.
+Do not assume that ordinary directories named `data`, `runtime`, `inputs` or
+`out` contain private material
 in every project. Inspect selected source before capture.
 
 Evidence exclusions are enforced across registered projects so a dependency

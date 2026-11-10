@@ -134,7 +134,7 @@ def acceptance_gate(request: dict) -> dict:
         raise ValueError('skip_specs contradicts archived capability deltas')
     if not skipped and not deltas:
         raise ValueError('archived capability evidence is missing')
-    required_source = {selected['queue'], '_agentic_harness/projects.yaml',
+    required_source = {selected['queue'], *projects.configuration_paths(root, selected),
                        projects.config_path(root, selected).relative_to(root).as_posix()}
     required_source.update(p.relative_to(root).as_posix() for p in matches[0].rglob('*') if p.is_file())
     for delta in deltas:

@@ -25,8 +25,32 @@ def test_generic_source_directory_names_are_public(repository, tmp_path, relativ
 def configure(repository, exclusions):
     path = repository / '_agentic_harness/projects.yaml'
     config = yaml.safe_load(path.read_text())
-    config['projects']['synthetic']['evidence_exclude'] = exclusions
+    if config['schema_version'] == 2:
+        path = repository / config['projects']['synthetic']['root'] / 'openspec/workflow.yaml'
+        config = yaml.safe_load(path.read_text())
+        config['evidence_exclude'] = exclusions
+    else:
+        config['projects']['synthetic']['evidence_exclude'] = exclusions
     path.write_text(yaml.safe_dump(config))
+
+
+def use_companion(repository):
+    index = repository / '_agentic_harness/projects.yaml'
+    data = yaml.safe_load(index.read_text())
+    entries = {}
+    for name, selected in data['projects'].items():
+        entries[name] = {'root': selected['root']}
+        settings = {key: value for key, value in selected.items() if key not in {'root', 'queue'}}
+        companion = repository / selected['root'] / 'openspec/workflow.yaml'
+        companion.write_text(yaml.safe_dump({'schema_version': 1, **settings}))
+    index.write_text(yaml.safe_dump({'schema_version': 2, 'projects': entries}))
+
+
+@pytest.fixture(params=[1, 2])
+def privacy_layout(repository, request):
+    if request.param == 2:
+        use_companion(repository)
+    return request.param
 
 
 def test_exclusion_is_a_path_boundary_not_a_string_prefix(repository, tmp_path):
@@ -39,7 +63,7 @@ def test_exclusion_is_a_path_boundary_not_a_string_prefix(repository, tmp_path):
     capture(repository, tmp_path / 'allowed', ['private-data-public/example.json'])
 
 
-def test_new_live_exclusion_rejects_reuse_of_old_review(repository, tmp_path):
+def test_new_live_exclusion_rejects_reuse_of_old_review(repository, tmp_path, privacy_layout):
     target = tmp_path / 'bundle'
     capture(repository, target, ['source.py'])
     configure(repository, ['source.py'])
@@ -48,7 +72,7 @@ def test_new_live_exclusion_rejects_reuse_of_old_review(repository, tmp_path):
     assert evidence.verify(target)['input_scope'] == ['source.py']
 
 
-def test_excluded_deleted_source_never_enters_bundle(repository, tmp_path):
+def test_excluded_deleted_source_never_enters_bundle(repository, tmp_path, privacy_layout):
     path = repository / 'private-data.json'
     path.write_text('{}\n')
     configure(repository, ['private-data.json'])
@@ -62,7 +86,7 @@ def test_excluded_deleted_source_never_enters_bundle(repository, tmp_path):
                              run_id='run', base=base, policy='plans-v1')
 
 
-def test_deleted_original_preserves_base_privacy_when_exclusion_is_retired(repository, tmp_path):
+def test_deleted_original_preserves_base_privacy_when_exclusion_is_retired(repository, tmp_path, privacy_layout):
     path = repository / 'private-data.json'
     path.write_text('{"synthetic-private": true}\n')
     configure(repository, ['private-data.json'])
@@ -95,7 +119,7 @@ def test_dependency_reads_respect_other_domains_private_paths(repository, tmp_pa
         capture(repository, tmp_path / 'bundle', ['other/private.json'])
 
 
-def test_policy_change_during_capture_never_publishes_bundle(repository, tmp_path, monkeypatch):
+def test_policy_change_during_capture_never_publishes_bundle(repository, tmp_path, monkeypatch, privacy_layout):
     original = evidence._inventory
     calls = 0
     def mutate(root, scope, **kwargs):
@@ -121,3 +145,64 @@ def test_malformed_retained_exclusions_fail_closed(repository, tmp_path, exclusi
     path.write_text(json.dumps(manifest))
     with pytest.raises(ValueError):
         evidence.verify(target)
+
+
+def test_pinned_companion_is_read_from_base_when_live_files_are_removed(repository):
+    use_companion(repository)
+    configure(repository, ['private-data.json'])
+    git(repository, 'add', '.')
+    git(repository, 'commit', '-m', 'Commit companion privacy policy')
+    base = git(repository, 'rev-parse', 'HEAD')
+    (repository / 'project/openspec/workflow.yaml').unlink()
+    (repository / '_agentic_harness/projects.yaml').unlink()
+    assert evidence._base_exclusions(repository / '.git', base) == ['private-data.json']
+
+
+@pytest.mark.parametrize('corruption', [
+    'missing', 'symlink', 'invalid-yaml', 'duplicate-field', 'unsupported-version',
+    'missing-checks', 'unknown-field', 'invalid-exclusions', 'unsafe-exclusion',
+    'unsafe-root', 'absolute-root', 'noncanonical-root', 'invalid-environment',
+])
+def test_invalid_pinned_companion_fails_closed_even_after_live_repair(repository, corruption):
+    use_companion(repository)
+    path = repository / 'project/openspec/workflow.yaml'
+    index = repository / '_agentic_harness/projects.yaml'
+    original, original_index = path.read_bytes(), index.read_bytes()
+    config = yaml.safe_load(original)
+    if corruption == 'missing':
+        path.unlink()
+    elif corruption == 'symlink':
+        path.unlink()
+        path.symlink_to('config.yaml')
+    elif corruption == 'invalid-yaml':
+        path.write_text('evidence_exclude: [\n')
+    elif corruption == 'duplicate-field':
+        path.write_bytes(original + b'evidence_exclude: []\n')
+    elif corruption in {'unsafe-root', 'absolute-root', 'noncanonical-root'}:
+        data = yaml.safe_load(original_index)
+        data['projects']['synthetic']['root'] = {
+            'unsafe-root': '../outside', 'absolute-root': '/project', 'noncanonical-root': './project',
+        }[corruption]
+        index.write_text(yaml.safe_dump(data))
+    else:
+        if corruption == 'unsupported-version':
+            config['schema_version'] = 7
+        elif corruption == 'missing-checks':
+            config.pop('checks')
+        elif corruption == 'unknown-field':
+            config['evidence_excludes'] = ['private-data.json']
+        elif corruption == 'invalid-exclusions':
+            config['evidence_exclude'] = 'private-data.json'
+        elif corruption == 'unsafe-exclusion':
+            config['evidence_exclude'] = ['../private-data.json']
+        elif corruption == 'invalid-environment':
+            config['environment'] = {'lockfiles': ['.']}
+        path.write_text(yaml.safe_dump(config))
+    git(repository, 'add', '.')
+    git(repository, 'commit', '-m', 'Invalid synthetic historical configuration')
+    base = git(repository, 'rev-parse', 'HEAD')
+    path.unlink(missing_ok=True)
+    path.write_bytes(original)
+    index.write_bytes(original_index)
+    with pytest.raises(ValueError):
+        evidence._base_exclusions(repository / '.git', base)

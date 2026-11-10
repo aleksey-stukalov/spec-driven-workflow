@@ -7,23 +7,33 @@ implementation review. Their discovery does not grant additional authority.
 
 Commands below run from the assigned repository or worktree root. `python`
 means the interpreter prepared for the installed harness; it is not necessarily
-the target application's interpreter. `PROJECT` and JSON filenames are explicit
-inputs, not discovered defaults to invent. Later `harness.py` references abbreviate
+the target application's interpreter. `SPEC_ROOT` is the repository-relative
+directory containing the intended `openspec/`; use `.` for the root. JSON
+filenames identify the requests you prepared. Later `harness.py` references abbreviate
 `python _agentic_harness/tools/harness.py`; use the full invocation when running them.
 
 ## Resolve inputs and ownership
 
-1. Resolve the intended registration:
+1. Select the intended OpenSpec directory:
 
    ```sh
-   python _agentic_harness/tools/harness.py project PROJECT
-   python _agentic_harness/tools/harness.py openspec PROJECT -- list --json
+   python _agentic_harness/tools/harness.py project --at SPEC_ROOT
+   python _agentic_harness/tools/harness.py openspec --at SPEC_ROOT -- list --json
    ```
 
    Read the returned specification home, source scope, queue, checks and
-   environment policy. With several registered projects, select one explicitly.
-   Read the selected change and applicable target instructions. The OpenSpec
-   wrapper selects its registered working directory and pinned executable.
+   environment policy. Read native context and rules in its `openspec/config.yaml`
+   (or existing `config.yml`) and executable settings in `openspec/workflow.yaml`.
+   Keep the returned `id` in all machine requests for this run. The internal index
+   preserves stable identifiers; you do not need to invent or remember one.
+   Read the selected change and applicable target instructions. The wrapper
+   selects that OpenSpec directory and the pinned executable.
+
+   Omit `--at` when the current directory identifies the intended adopted home,
+   or when no local home is found and only one project is configured. A nearer
+   unadopted home or ambiguity stops selection. When tests are outside the
+   specification home, choose their owning home explicitly. Preserve the selected
+   binding after intake; changing directories does not change an admitted run.
 
 2. Record bounded intake and validate it with `harness.py intake INTAKE.json`.
    Preserve the current ticket observation outside the repository when
@@ -87,8 +97,9 @@ inputs, not discovered defaults to invent. Later `harness.py` references abbrevi
 10. Run required checks against the final source and complete the
     [OpenSpec lifecycle](../policies/openspec.md). Final coverage includes changed,
     new and deleted paths, synchronized capability bodies, archived change
-    artifacts, queue and configuration. Archive relocation needs a newly bound
-    design snapshot and affected independent acceptance. Confirm full review
+    artifacts, queue, native configuration, internal index and the selected
+    `openspec/workflow.yaml` containing check authority. Archive relocation needs
+    a newly bound design snapshot and affected independent acceptance. Confirm full review
     originals and final-source correspondence before claiming readiness.
 
 11. Use `harness.py remote prepare`, `grant`, `execute` and `reconcile` for the

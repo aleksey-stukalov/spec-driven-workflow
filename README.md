@@ -25,9 +25,6 @@ Choose one of the following installation options.
 
 ### Apply to the whole repository
 
-Choose a short lowercase name for this workflow configuration. The example uses `app`.
-It is a label you choose; it does not need to match a repository or folder name.
-
 Replace `/path/to/your-repository` with the path to your Git repository. This
 example assumes that its tests run with `npm test`; replace `--check` with your
 project's actual validation command, as explained below.
@@ -35,23 +32,22 @@ project's actual validation command, as explained below.
 ```sh
 uv run --locked python tools/workflow.py install \
   --target /path/to/your-repository \
-  --project app \
-  --spec-root . \
-  --scope . \
   --check '["npm", "test"]' \
   --agent codex --agent claude \
   --dry-run
 ```
 
 Inspect the planned changes, then repeat without `--dry-run` to install.
+The installer creates or reuses `openspec/` at the repository root and applies
+the process to the whole repository. No configuration name is required.
+The directory containing `openspec/` is called its OpenSpec home.
 
 | Option | Meaning |
 | --- | --- |
 | `--target /path/to/your-repository` | The Git repository receiving the workflow. |
-| `--project app` | Your name for this configuration. Use the same name when selecting it later. |
-| `--spec-root .` | Put or reuse `openspec/` at the target repository's root. |
-| `--scope .` | Apply the process to the whole target repository. Repeat `--scope` to select several paths instead. |
-| `--check '["npm", "test"]'` | Register a validation command to run from the target repository's root during development. |
+| `--spec-root backend` | Put or reuse `openspec/` inside `backend/`. Omit this option to use the repository root. |
+| `--scope backend` | Apply the process to this path. Repeat the option for related source and test paths. For a new installation, the default is the directory selected by `--spec-root`. |
+| `--check '["npm", "test"]'` | Save a required validation command to run from the target repository's root during development. |
 | `--agent codex --agent claude` | Install integrations for these agents. Include only the ones you use. |
 | `--dry-run` | Preview the changes without modifying the target repository. |
 
@@ -73,17 +69,18 @@ commands; run them to verify the target project as part of adoption. If the
 project has dependency lockfiles, declare their paths with `--lockfile`, for
 example `--lockfile package-lock.json`.
 
+On a repeat installation for the same OpenSpec home, omitted settings are read
+from the saved configuration. A new installation needs real check commands,
+supplied by `--check` or an existing `openspec/workflow.yaml`.
+
 ### Apply to selected folders
 
 Suppose your repository contains `backend/`, `tests/backend/` and `frontend/`.
-To adopt the workflow for the backend and its tests, name the configuration
-`backend` and select those two paths:
+Keep one `openspec/` at the repository root and select the backend and its tests:
 
 ```sh
 uv run --locked python tools/workflow.py install \
   --target /path/to/your-repository \
-  --project backend \
-  --spec-root backend \
   --scope backend \
   --scope tests/backend \
   --check '["npm", "--prefix", "backend", "test"]' \
@@ -91,17 +88,59 @@ uv run --locked python tools/workflow.py install \
   --dry-run
 ```
 
-This example puts specifications in `backend/openspec/` and applies the process
-to `backend/` and `tests/backend/`. It assumes the backend uses `npm test`; replace
+This example puts specifications in `openspec/` and applies the process to
+`backend/` and `tests/backend/`. It assumes the backend uses `npm test`; replace
 the check if your project uses another command. The source scope excludes
 `frontend/`. Installation also adds shared workflow files and scoped agent
 instructions at the repository root.
 
-The OpenSpec root and source scope are separate. One project can cover several
-source directories. Two independently developed components can have separate
-registered projects with non-nested OpenSpec roots. Ambiguous overlapping scopes
-are rejected. See
-[scope and routing](docs/scope.md).
+If the backend already has its own `backend/openspec/`, use that home by adding
+`--spec-root backend` to the initial installation command. These are alternative
+layouts; choose the existing home before installing. One OpenSpec home can cover
+several source directories. Independently developed components can use separate,
+non-nested homes with non-overlapping scopes. See [scope and routing](docs/scope.md).
+
+### Configure the project
+
+Keep settings beside the specifications:
+
+| File | What belongs there |
+| --- | --- |
+| `openspec/config.yaml` or `config.yml` | OpenSpec's schema, project context, document rules and operation guidance. Existing content is preserved. |
+| `openspec/workflow.yaml` | This workflow's source paths, executable checks, environment preparation and evidence exclusions. |
+| `openspec/queue.yaml` | The ordered changes and their dependencies. |
+| `_agentic_harness/` | The installed process and execution tools, shared across OpenSpec homes in the repository. |
+
+For the selected-folder example, the installer creates settings like these:
+
+```yaml
+# openspec/workflow.yaml
+schema_version: 1
+code_roots: [backend, tests/backend]
+checks:
+  - [npm, --prefix, backend, test]
+environment:
+  lockfiles: []
+  prepare: []
+evidence_exclude: []
+```
+
+All paths in this file are relative to the Git worktree root, including when the
+file lives in `backend/openspec/`. Checks and preparation commands run from that
+same root. Declare real dependency locks and any required preparation commands;
+the empty lists above do not imply that the application needs none.
+
+`workflow.yaml` belongs to this package's integration, not to OpenSpec itself.
+It makes checks executable while native OpenSpec configuration supplies project
+context and rules. Edit the appropriate local file, then run `update --dry-run`
+and apply the update to refresh routing and integrity records. Do not edit the
+package's policy files to configure an application.
+
+The installer maintains `_agentic_harness/projects.yaml` as an internal index of
+OpenSpec homes. Its stable identifiers connect run history and evidence. Normal
+setup and selection use paths; old `--project NAME` arguments remain supported
+for compatibility. Do not rename those identifiers or maintain a second copy of
+the settings in the index.
 
 ### Check or update an installation
 
@@ -116,28 +155,55 @@ An update uses the workflow checkout from which the command is run. Review its
 version and changes first. Local edits to package-managed files are conflicts;
 project configuration and product specifications remain locally owned.
 
+For older installations, the update moves inline settings from `projects.yaml`
+to each home's `openspec/workflow.yaml` and retains the existing identifiers.
+The dry-run shows the migration. A pre-existing companion file with different
+settings is a conflict to resolve before applying the update. Active runs retain
+their original worktree, runtime and evidence; they are not migrated in place.
+
 ## Use the installed workflow
 
 The installer adds `sdw-run`, `sdw-harden` and `sdw-review` skills for selected
 agents, role definitions under the `sdw-` namespace, a scoped instruction block,
 and the `_agentic_harness/` runtime. It does not replace global model settings.
 
-From the target repository's Git worktree root, select the name you passed to
-`--project`. These commands use `app` from the whole-repository example:
+From the target repository's Git worktree root, inspect the selected OpenSpec
+home and list its changes:
 
 ```sh
 uv run --locked --project _agentic_harness python \
-  _agentic_harness/tools/harness.py project app
+  _agentic_harness/tools/harness.py project
 
 uv run --locked --project _agentic_harness python \
-  _agentic_harness/tools/harness.py openspec app -- list --json
+  _agentic_harness/tools/harness.py openspec -- list --json
 ```
+
+Here `uv --project _agentic_harness` selects the tools' Python environment.
+It is a uv option, not a workflow name.
+
+When several homes exist, select one by directory:
+
+```sh
+uv run --locked --project _agentic_harness python \
+  _agentic_harness/tools/harness.py project --at backend
+
+uv run --locked --project _agentic_harness python \
+  _agentic_harness/tools/harness.py openspec --at backend -- list --json
+```
+
+`--at` is relative to the Git worktree root. Without it, selection uses the
+nearest OpenSpec home above the current directory. If no home is found, the
+sole installed home can be selected automatically. An ambiguous choice or a
+nearer OpenSpec home that has not adopted this workflow stops the command.
 
 The agent follows the [policy map](_agentic_harness/policies/README.md) and
 [execution procedure](_agentic_harness/procedures/execute.md). The runtime is a
 set of explicit phase tools, not an unattended task runner. The agent prepares
 and verifies the requests, selected project, authorizations and original evidence.
 Read-only discovery does not claim work or start the next task.
+Use the `sdw-*` skills to run this process. Ordinary OpenSpec commands remain
+available, but running `/opsx:apply` alone does not invoke this workflow's
+independent reviews, accounting or final acceptance checks.
 
 ```mermaid
 flowchart LR
@@ -162,6 +228,12 @@ OpenSpec 1.14.3 generates its own `openspec-*` skills and any selected `opsx-*`
 commands. This workflow does not modify or shadow those files. Its own policy,
 roles and skills have separate ownership. Upstream updates must leave them intact.
 Product specs, changes and project context belong to the target project.
+
+OpenSpec's built-in `spec-driven` schema already provides the proposal, design,
+specifications and tasks used by this workflow. No custom schema is required.
+Existing custom schemas are preserved, but execution requires compatible
+`proposal.md`, `design.md`, `tasks.md` and `specs/<capability>/spec.md` artifacts.
+Preserving a schema does not establish support for arbitrary artifact layouts.
 
 The original GitBob importer skills already matched clean OpenSpec output. The
 custom root wrappers are replaced by the `sdw-*` entrypoints in this extraction.

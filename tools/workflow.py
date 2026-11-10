@@ -208,14 +208,89 @@ def verify_owned(target: Path, manifest: dict | None) -> None:
             raise InstallError(f"locally changed or missing workflow block: {name}")
 
 
-def load_registry(target: Path) -> dict:
+def workflow_name(root: str) -> str:
+    return join(relative(root, root=True), "openspec/workflow.yaml")
+
+
+def workflow_settings(project: dict) -> dict:
+    """Normalize defaults without rewriting the project's local YAML."""
+    environment = project.get("environment", {})
+    if not isinstance(environment, dict) or set(environment) - {"lockfiles", "prepare"}:
+        raise InstallError("environment supports lockfiles and prepare lists")
+    return {
+        "code_roots": project["code_roots"], "checks": project["checks"],
+        "environment": {"lockfiles": environment.get("lockfiles", []),
+                        "prepare": environment.get("prepare", [])},
+        "evidence_exclude": project.get("evidence_exclude", []),
+    }
+
+
+def read_workflow(target: Path, root: str, *, readset=None, required=False) -> dict | None:
+    name = workflow_name(root)
+    if readset is not None and name not in readset:
+        readset[name] = observe(target, name)
+    path = target_path(target, name)
+    if not path.exists():
+        if required:
+            raise InstallError(f"missing workflow configuration: {name}")
+        return None
+    if not path.is_file():
+        raise InstallError(f"workflow configuration is not a regular file: {name}")
+    value = read_yaml(path)
+    required_fields = {"schema_version", "code_roots", "checks"}
+    if (not isinstance(value, dict) or not required_fields <= set(value)
+            or set(value) - required_fields - {"environment", "evidence_exclude"}
+            or type(value["schema_version"]) is not int or value["schema_version"] != 1):
+        raise InstallError(f"unsupported workflow configuration: {name}")
+    return workflow_settings(value)
+
+
+def load_registry(target: Path, *, readset=None) -> dict:
+    """Expand either index version into the runtime's stable project structure."""
+    if readset is not None and REGISTRY not in readset:
+        readset[REGISTRY] = observe(target, REGISTRY)
     path = target_path(target, REGISTRY)
     if not path.exists():
         return {"schema_version": 1, "projects": {}}
     value = read_yaml(path)
-    if not isinstance(value, dict) or set(value) != {"schema_version", "projects"} or value["schema_version"] != 1 or not isinstance(value["projects"], dict):
+    if (not isinstance(value, dict) or set(value) != {"schema_version", "projects"}
+            or type(value["schema_version"]) is not int or value["schema_version"] not in {1, 2}
+            or not isinstance(value["projects"], dict)):
         raise InstallError("unsupported projects.yaml; existing configuration was preserved")
-    return value
+    projects = {}
+    for name, project in value["projects"].items():
+        if not isinstance(project, dict) or "root" not in project:
+            raise InstallError(f"incomplete project registration: {name}")
+        root = relative(project["root"], root=True)
+        local = read_workflow(target, root, readset=readset, required=value["schema_version"] == 2)
+        if value["schema_version"] == 2:
+            if set(project) != {"root"}:
+                raise InstallError("version 2 projects.yaml contains only OpenSpec roots; edit openspec/workflow.yaml")
+            projects[name] = {"root": root, "queue": join(root, "openspec/queue.yaml"), **local}
+        else:
+            required_fields = {"root", "queue", "code_roots", "checks"}
+            if not required_fields <= set(project) or set(project) - required_fields - {"environment", "evidence_exclude"}:
+                raise InstallError(f"invalid legacy project configuration: {name}")
+            settings = workflow_settings(project)
+            if local is not None and local != settings:
+                raise InstallError(f"workflow configuration conflicts with legacy projects.yaml: {workflow_name(root)}")
+            projects[name] = {"root": root, "queue": project["queue"], **settings}
+    return {"schema_version": 1, "projects": projects}
+
+
+def project_identifier(root: str, projects: dict) -> str:
+    """Allocate once; the stored identity survives later configuration changes."""
+    base = "root" if root == "." else re.sub(r"[^a-z0-9_-]+", "-", root.lower()).strip("-_")
+    if not base or not base[0].isalpha():
+        base = "project-" + base if base else "project"
+    if base not in projects:
+        return base
+    suffix = digest(root.encode())
+    for width in range(12, len(suffix) + 1, 4):
+        candidate = base + "-" + suffix[:width]
+        if candidate not in projects:
+            return candidate
+    raise InstallError("cannot allocate a unique workflow identity; specify --project explicitly")
 
 
 def validate_registry(target: Path, registry: dict) -> None:
@@ -550,7 +625,7 @@ def build_plan(target: Path, source: Path, registry: dict, registrations: dict, 
         watched.add(project["root"])
         watched.update(project["code_roots"])
         watched.update(project.get("environment", {}).get("lockfiles", []))
-        watched.update(join(project["root"], "openspec/" + name) for name in ("config.yaml", "config.yml", "queue.yaml", "changes", "schemas"))
+        watched.update(join(project["root"], "openspec/" + name) for name in ("config.yaml", "config.yml", "workflow.yaml", "queue.yaml", "changes", "schemas"))
         schemas = target_path(target, join(project["root"], "openspec/schemas"))
         if schemas.exists():
             watched.update(path.relative_to(target).as_posix() for path in schemas.rglob("*"))
@@ -587,9 +662,18 @@ def build_plan(target: Path, source: Path, registry: dict, registrations: dict, 
         if path.is_file() and not owned and path.read_bytes() != contents:
             raise InstallError(f"existing file conflicts with installation: {name}; preserve its customizations outside managed files first")
     current_registry = target_path(target, REGISTRY)
-    if not current_registry.exists() or load_registry(target) != registry:
-        intended[REGISTRY] = yaml.safe_dump(registry, sort_keys=False).encode()
+    index = {"schema_version": 2, "projects": {name: {"root": project["root"]}
+             for name, project in registry["projects"].items()}}
+    if not current_registry.exists() or read_yaml(current_registry) != index:
+        intended[REGISTRY] = yaml.safe_dump(index, sort_keys=False).encode()
     for project in registry["projects"].values():
+        local = read_workflow(target, project["root"], readset=readset)
+        settings = workflow_settings(project)
+        if local is None:
+            intended[workflow_name(project["root"])] = yaml.safe_dump(
+                {"schema_version": 1, **settings}, sort_keys=False).encode()
+        elif local != settings:
+            raise InstallError(f"existing workflow configuration differs: {workflow_name(project['root'])}; edit it explicitly and use update")
         queue = target_path(target, project["queue"])
         if not queue.exists():
             changes = target_path(target, join(project["root"], "openspec/changes"))
@@ -758,20 +842,43 @@ def installation(target: Path, *, project: str | None = None, spec_root=".", sco
     old = load_manifest(target)
     if update and old is None:
         raise InstallError("target has no workflow installation to update")
-    registry = load_registry(target)
+    registry = load_registry(target, readset=initial_readset)
+    validate_registry(target, registry)
     registrations = dict(old["projects"]) if old else {}
     if not update:
-        if not project or not re.fullmatch(r"[a-z][a-z0-9_-]*", project):
-            raise InstallError("--project requires a lowercase domain identifier")
-        selected_agents = sorted(set(agents or ["codex", "claude"]))
+        spec_root = relative(spec_root, root=True)
+        if project is not None and (not isinstance(project, str) or not re.fullmatch(r"[a-z][a-z0-9_-]*", project)):
+            raise InstallError("--project requires a lowercase compatibility identifier")
+        matching = [name for name, item in registry["projects"].items() if item["root"] == spec_root]
+        if matching and project is not None and project != matching[0]:
+            raise InstallError("OpenSpec root already has a different stable project identity; omit --project")
+        if project in registry["projects"] and registry["projects"][project]["root"] != spec_root:
+            raise InstallError("project identity already belongs to a different OpenSpec root")
+        project = matching[0] if matching else project or project_identifier(spec_root, registry["projects"])
+        previous = registry["projects"].get(project)
+        existing = previous
+        if existing is None:
+            local = read_workflow(target, spec_root, readset=initial_readset)
+            if local is not None:
+                existing = {"root": spec_root, "queue": join(spec_root, "openspec/queue.yaml"), **local}
+        default = {"root": spec_root, "queue": join(spec_root, "openspec/queue.yaml"),
+                   "code_roots": [spec_root], "checks": [],
+                   "environment": {"lockfiles": [], "prepare": []}, "evidence_exclude": []}
+        configuration = {**(existing or default)}
+        if scopes is not None:
+            configuration["code_roots"] = sorted(set(scopes))
+        if checks is not None:
+            configuration["checks"] = checks
+        if lockfiles is not None:
+            configuration["environment"] = {**configuration["environment"], "lockfiles": sorted(set(lockfiles))}
+        if not configuration["checks"]:
+            raise InstallError("provide --check commands or checks in openspec/workflow.yaml")
+        if existing is not None and existing != configuration:
+            raise InstallError("project already has different local configuration; edit openspec/workflow.yaml explicitly and use update")
+        prior_agents = registrations.get(project, {}).get("agents", ["codex", "claude"])
+        selected_agents = sorted(set(prior_agents if agents is None else agents))
         if not selected_agents or not set(selected_agents) <= AGENTS:
             raise InstallError("supported agent integrations are codex and claude")
-        configuration = {"root": relative(spec_root, root=True), "queue": join(spec_root, "openspec/queue.yaml"),
-                         "code_roots": sorted(set(scopes or [spec_root])), "checks": checks or [],
-                         "environment": {"lockfiles": sorted(set(lockfiles or [])), "prepare": []}, "evidence_exclude": []}
-        previous = registry["projects"].get(project)
-        if previous is not None and previous != configuration:
-            raise InstallError("project already has different local configuration; edit projects.yaml explicitly and use update")
         registry["projects"][project] = configuration
         registrations[project] = {"agents": selected_agents, "root": configuration["root"]}
     if set(registrations) != set(registry["projects"]):
@@ -792,7 +899,12 @@ def doctor(target: Path) -> dict:
     registry = load_registry(target)
     validate_registry(target, registry)
     if digest(encoded(registry)) != manifest["registry_sha256"]:
-        raise InstallError("local project configuration changed; run update to refresh installed routing")
+        # Version-1 manifests hashed the inline document before filling optional
+        # defaults. Accept that exact historical authority until migration; v2
+        # must always bind expanded settings, including every companion file.
+        recorded = read_yaml(target_path(target, REGISTRY))
+        if recorded["schema_version"] != 1 or digest(encoded(recorded)) != manifest["registry_sha256"]:
+            raise InstallError("local project configuration changed; run update to refresh installed routing")
     if set(registry["projects"]) != set(manifest["projects"]):
         raise InstallError("registered domains differ from installed integrations; run an explicit installation")
     if not installed_openspec(target):
@@ -811,12 +923,12 @@ def doctor(target: Path) -> dict:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    install = commands.add_parser("install", help="connect one explicitly scoped development domain")
+    install = commands.add_parser("install", help="connect a local OpenSpec root and its code scope")
     install.add_argument("--target", type=Path, required=True)
-    install.add_argument("--project", required=True)
-    install.add_argument("--spec-root", default=".")
-    install.add_argument("--scope", action="append", dest="scopes")
-    install.add_argument("--check", action="append", required=True)
+    install.add_argument("--project", help="optional compatibility identifier; existing identities are preserved")
+    install.add_argument("--spec-root", default=".", help="directory containing openspec/, relative to --target (default: .)")
+    install.add_argument("--scope", action="append", dest="scopes", help="source path relative to --target; repeat for several paths")
+    install.add_argument("--check", action="append", help="JSON argv command; required unless workflow.yaml already supplies checks")
     install.add_argument("--agent", action="append", choices=sorted(AGENTS), dest="agents")
     install.add_argument("--lockfile", action="append", dest="lockfiles")
     install.add_argument("--dry-run", action="store_true")
@@ -832,7 +944,7 @@ def main(argv=None) -> int:
         elif args.command == "update":
             result = installation(args.target, update=True, dry_run=args.dry_run)
         else:
-            checks = [_argv(json.loads(value)) for value in args.check]
+            checks = [_argv(json.loads(value)) for value in args.check] if args.check is not None else None
             result = installation(args.target, project=args.project, spec_root=args.spec_root, scopes=args.scopes,
                                   checks=checks, agents=args.agents, lockfiles=args.lockfiles, dry_run=args.dry_run)
         print(json.dumps(result, indent=2))
